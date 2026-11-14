@@ -1,0 +1,18 @@
+{
+  "name": "@cypherock/sdk-hw-simulator",
+  "version": "0.1.0",
+  "description": "Connects the Cypherock SDK to the X1 firmware simulator over TCP, so SDK apps can run against real firmware logic without hardware.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": ["cypherock", "hardware-wallet", "simulator", "sdk", "x1"],
+  "engines": {
+    "node": ">=18"
+  }
+}

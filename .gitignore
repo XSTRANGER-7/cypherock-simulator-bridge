@@ -1,0 +1,7 @@
+node_modules/
+dist/
+firmware-patch/build/
+.sim.log
+.sim.pid
+*.tsbuildinfo
+.DS_Store

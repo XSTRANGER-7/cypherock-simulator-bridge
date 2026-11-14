@@ -1,0 +1,29 @@
+{
+  "name": "cypherock-simulator-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run the Cypherock SDK against the real X1 firmware simulator, without hardware.",
+  "license": "MIT",
+  "scripts": {
+    "test": "tsx --test packages/hw-simulator/tests/*.test.ts",
+    "test:c": "make -C firmware-patch test",
+    "test:bridge": "make -C firmware-patch && tsx --test integration-tests/c-bridge.test.ts",
+    "test:sdk": "CYPHEROCK_SIM=1 tsx --test integration-tests/sdk-*.test.ts",
+    "test:all": "./scripts/run-tests.sh",
+    "typecheck": "tsc -p tsconfig.json",
+    "mock": "tsx packages/mock-device/src/index.ts",
+    "example:connect": "tsx examples/connect.ts",
+    "example:info": "tsx examples/get-device-info.ts",
+    "example:wallets": "tsx examples/get-wallets.ts",
+    "example:eth": "tsx examples/get-eth-address.ts",
+    "playground": "tsx examples/playground.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
