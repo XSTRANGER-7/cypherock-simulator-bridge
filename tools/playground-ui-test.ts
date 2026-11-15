@@ -83,48 +83,44 @@ async function main() {
     };
     const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click(), true`);
 
+    const shoot = async (file: string) => {
+      const shot = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      const out = path.join(path.dirname(OUT), file);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
+      console.log(`screenshot: ${out}`);
+    };
+
     await cdp('Page.enable');
-    await waitFor(`document.readyState === 'complete' && !!document.querySelector('#sim-pill')`, 10000, 'page load');
-    const pill = await js(`document.querySelector('#sim-pill').textContent`);
-    console.log(`page loaded: ${pill}`);
-    if (!/running/.test(pill)) {
-      await click('#btn-start');
-      await waitFor(`/running/.test(document.querySelector('#sim-pill').textContent)`, 90000, 'simulator start');
-      console.log('started the simulator from the page');
+    await waitFor(`document.readyState === 'complete' && !!document.querySelector('.lvl-node')`, 15000, 'page load');
+    console.log(`page loaded: ${await js(`document.querySelector('#sim-text').textContent`)}`);
+
+    // Play the game like a user: each level -> press its action button -> wait
+    // for the checks -> every check must be green. Collect levels and the boss too.
+    const levels = Number(process.env.UI_LEVELS ?? 11);
+    const shots: Record<number, string> = { 1: 'game-level1-packet.png', 4: 'game-level4-address.png', 5: 'game-level5-sign.png', 10: 'game-boss.png' };
+    for (let i = 0; i < levels; i += 1) {
+      await click(`.lvl-node[data-level="${i}"]`);
+      await waitFor(`!!document.querySelector('[data-action="run"]')`, 5000, `level ${i} view`);
+      const title = await js(`document.querySelector('.mission-head h2').textContent`);
+      await click('[data-action="run"]');
+      await sleep(400);
+      await waitFor(`!document.querySelector('[data-action="run"]').disabled && document.querySelectorAll('.checks .check').length > 0`, 600000, title);
+      await sleep(i === 10 ? 300 : 2600); // let the result animation finish
+      const bad = await js(`[...document.querySelectorAll('.checks .check.bad')].map(c => c.textContent).join(' | ')`);
+      const good = await js(`document.querySelectorAll('.checks .check.ok').length`);
+      console.log(`${bad ? 'FAIL' : 'PASS'}  level ${i} ${title.padEnd(30)} ${good} checks green${bad ? `; red: ${bad}` : ''}`);
+      if (shots[i]) await shoot(shots[i]);
+      if (bad) throw new Error(`level ${i} failed: ${bad}`);
     }
 
-    const steps: Array<[string, string, (r: any) => boolean]> = [
-      ['[data-op="device-info"]', 'Device info', (r) => r.result.deviceSerial?.length === 64],
-      ['[data-op="eth-address"]', 'Get address', (r) => r.result.verified === true],
-      ['[data-op="sign-tx"]', 'Sign transaction', (r) => r.result.verified === true],
-      ['[data-op="sign-message"]', 'Sign message', (r) => r.result.verified === true],
-      ['[data-op="coin-key"]', 'Other coin key', (r) => !!r.result.publicKeys || !!r.result.addresses],
-    ];
-    for (const [selector, name, ok] of steps) {
-      await click(selector);
-      await waitFor(`!document.querySelector('${selector}').disabled && document.querySelector('#result-badge').textContent !== 'running'`, 90000, name);
-      const badge = await js(`document.querySelector('#result-badge').textContent`);
-      const text = await js(`document.querySelector('#result').textContent`);
-      let parsed: any;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = undefined;
-      }
-      const pass = !!parsed && ok(parsed);
-      console.log(`${pass ? 'PASS' : 'FAIL'}  ${name.padEnd(18)} badge="${badge}"`);
-      if (!pass) throw new Error(`${name}: ${text.slice(0, 300)}`);
-    }
-
-    const frames = await js(`document.querySelectorAll('#frames li').length`);
-    const firstFrames = await js(`[...document.querySelectorAll('#frames li')].slice(-3).map(li => li.textContent).join('\\n')`);
-    console.log(`frame log shows ${frames} frames, last ones:\n${firstFrames}`);
-    if (!frames) throw new Error('no frames in the live log');
-
-    const shot = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-    fs.mkdirSync(path.dirname(OUT), { recursive: true });
-    fs.writeFileSync(OUT, Buffer.from(shot.result.data, 'base64'));
-    console.log(`screenshot: ${OUT}`);
+    const feed = await js(`document.querySelectorAll('#feed li:not(.log)').length`);
+    const xp = await js(`document.querySelector('#xptext').textContent + ' · ' + document.querySelector('#rank').textContent`);
+    console.log(`packet feed shows ${feed} packets; progress ${xp}`);
+    if (!feed) throw new Error('no packets in the live feed');
+    await click(`.lvl-node[data-level="5"]`);
+    await sleep(600);
+    await shoot('playground.png');
     await cdp('Browser.close').catch(() => undefined);
     ws.close();
   } finally {

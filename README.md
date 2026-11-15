@@ -32,9 +32,11 @@ OK: firmware signature verified by viem and ethers
 
 Full outputs and the frame-by-frame trace are in [docs/notes/](docs/notes).
 
-## Try it in the browser
+## Play it: X1 Quest
 
-![Web playground](docs/notes/playground.png)
+A guided, game-style playground. Each level is one real SDK call against the real firmware: it tells you **what** you are doing, **why** it matters, **where it is used** in real wallets, shows the steps advancing on real packets, animates the result, and runs **real test checks** on it.
+
+![X1 Quest: signing level](docs/notes/game-level5-sign.png)
 
 ```bash
 # Any OS with Docker (builds upstream firmware + SDK with the patches, ~15 min)
@@ -45,7 +47,23 @@ docker run --rm -p 127.0.0.1:3000:3000 x1-sim-playground
 npm run playground:web
 ```
 
-Open http://127.0.0.1:3000. Start the simulator, then click: device info, wallets, an EVM address on 9 chains, sign a transaction / message / EIP-712, Bitcoin-family xpubs, and public keys for 10 more coins. Every 64-byte frame shows up decoded in the right panel. EVM results and the BTC xpub are marked **verified** when ethers derives the same thing from the test mnemonic. **Run every check** fills a pass/fail table.
+Open http://127.0.0.1:3000 and follow the map:
+
+| Level | What you do (for real) | What you learn |
+| --- | --- | --- |
+| 0 Power On | Boot the firmware, open the bridge | Boot states NULL → DEVICE → IDLE |
+| 1 First Contact | Send one raw 64-byte packet, no SDK | Packet anatomy, byte by byte (CRC, sequence, type) |
+| 2 Handshake | `ManagerApp.getDeviceInfo()` | Protocol handshake, CMD / ACK / STATUS / OUTPUT |
+| 3 The Vault | `getWallets()` | Wallets in flash; why a test mnemonic |
+| 4 Find Your Address | EVM address on 9 chains, any index | BIP-44 path, checked against ethers |
+| 5 Sign It | Sign an EIP-1559 transaction | r, s, v and recovering the signer |
+| 6 Prove It's You | personal_sign | Sign-in with Ethereum |
+| 7 Typed Data | EIP-712 | Permits, DEX orders |
+| 8 Bitcoin Family | Collect 5 xpubs | Watch-only wallets, BIP-44 vs BIP-84 |
+| 9 Many Chains | Collect 10 coin keys | One firmware, many coin apps |
+| 10 Final Boss | All 33 checks | What CI runs on every push |
+
+XP, ranks and badges are saved in your browser. The right panel animates every real packet between your app, the bridge and the firmware, color-coded by type, with a decoded feed underneath. The old all-buttons page is still at `/classic.html`. A headless-browser test plays all 11 levels: `npx tsx tools/playground-ui-test.ts`.
 
 ## What works in the simulator
 

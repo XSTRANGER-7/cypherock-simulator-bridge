@@ -21,7 +21,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { ethers } from 'ethers';
 import { DeviceConnection } from '../packages/hw-simulator/src';
 import { describeFrame, encodePacket, PACKET_TYPE } from '../examples/lib/packets';
-import { IDLE_STATE_NAMES, readStatus, waitIdle } from '../examples/lib/status';
+import { decodeVarintFields, IDLE_STATE_NAMES, waitIdle } from '../examples/lib/status';
 import { hex, loadApp, loadManagerApp } from '../examples/lib/sdk';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -219,10 +219,31 @@ const BTC: Record<string, [number, number]> = { btc: [44, 0], 'btc-segwit': [84,
 type Params = Record<string, any>;
 const OPS: Record<string, (p: Params) => Promise<unknown>> = {
   async 'raw-status'() {
+    // One STATUS_REQ packet straight onto the wire (no SDK), and the exact reply bytes.
     const c = await connection();
-    const status = await readStatus(c);
-    if (!status) throw new Error('no STATUS reply');
-    return { request: describeFrame(encodePacket({ type: PACKET_TYPE.STATUS_REQ, sequence: 0xffff })), status, idle: IDLE_STATE_NAMES[status[2] ?? 0] };
+    for (let i = 0; i < 200 && (await c.receive()); i += 1) {
+      /* drop stale frames */
+    }
+    const request = encodePacket({ type: PACKET_TYPE.STATUS_REQ, sequence: 0xffff });
+    await c.send(request);
+    let reply: Uint8Array | undefined;
+    for (let i = 0; i < 1500 && !reply; i += 1) {
+      const f = await c.receive();
+      if (f && f[0] === 0x55 && f[10] === PACKET_TYPE.STATUS) reply = f;
+      else if (!f) await new Promise((r) => setTimeout(r, 2));
+    }
+    if (!reply) throw new Error('no STATUS reply');
+    const replyPacket = reply.subarray(0, 16 + reply[15]);
+    const payload = reply.subarray(16, 16 + reply[15]);
+    const status = decodeVarintFields(payload.subarray(4, 4 + ((payload[0] << 8) | payload[1])));
+    return {
+      requestHex: hex(request),
+      replyHex: hex(replyPacket),
+      request: describeFrame(request),
+      reply: describeFrame(reply),
+      status,
+      idle: IDLE_STATE_NAMES[status?.[2] ?? 0],
+    };
   },
   async 'device-info'() {
     const m = await loadManagerApp().create(await connection());

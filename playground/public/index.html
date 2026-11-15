@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X1 Quest: Simulator Academy</title>
+  <link rel="stylesheet" href="/game.css">
+</head>
+<body>
+  <canvas id="confetti" aria-hidden="true"></canvas>
+
+  <header class="topbar">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" class="logo-mark" aria-hidden="true">
+        <rect x="6" y="6" width="28" height="28" rx="7" class="chip"/>
+        <rect x="13" y="13" width="14" height="14" rx="3" class="core"/>
+        <path d="M2 14h4M2 20h4M2 26h4M34 14h4M34 20h4M34 26h4M14 2v4M20 2v4M26 2v4M14 34v4M20 34v4M26 34v4" class="pins"/>
+      </svg>
+      <div>
+        <b>X1 Quest</b>
+        <small>Simulator Academy · real firmware, real SDK</small>
+      </div>
+    </div>
+
+    <div class="xp" aria-label="Experience">
+      <div class="rank" id="rank">Rookie</div>
+      <div class="xpbar"><div class="xpfill" id="xpfill"></div></div>
+      <div class="xptext" id="xptext">0 XP</div>
+    </div>
+
+    <div class="badge-count" id="badge-count" title="Levels completed">0/11</div>
+
+    <div class="sim-chip off" id="sim-chip"><span class="led"></span><span id="sim-text">Simulator: checking</span></div>
+
+    <details class="menu">
+      <summary aria-label="Menu">⋯</summary>
+      <div class="menu-body">
+        <button data-menu="unlock">Unlock all levels</button>
+        <button data-menu="reset-device">Reset simulator state</button>
+        <button data-menu="reset-progress">Reset my progress</button>
+        <a href="/classic.html">Classic view (all buttons)</a>
+      </div>
+    </details>
+  </header>
+
+  <main class="layout">
+    <nav class="map" id="map" aria-label="Levels"></nav>
+
+    <section class="mission" id="mission" aria-live="polite"></section>
+
+    <aside class="scene">
+      <div class="card wire-card">
+        <div class="card-title">
+          <h3>Live wire</h3>
+          <span class="muted" id="wire-stats">0 sent · 0 received</span>
+        </div>
+        <div class="wire" id="wire">
+          <div class="track"></div>
+          <div class="node app">
+            <svg viewBox="0 0 48 40" aria-hidden="true"><rect x="6" y="4" width="36" height="24" rx="3" class="frame"/><rect x="10" y="8" width="28" height="16" rx="1" class="glass"/><path d="M2 32h44l-4 4H6z" class="frame"/></svg>
+            <b>Your app</b><small>Cypherock SDK</small>
+          </div>
+          <div class="node bridge" id="bridge-node">
+            <svg viewBox="0 0 48 40" aria-hidden="true"><rect x="14" y="10" width="20" height="20" rx="5" class="frame"/><path d="M18 10V4M30 10V4M24 30v8" class="cable"/></svg>
+            <b>Bridge</b><small>TCP :52640</small>
+          </div>
+          <div class="node device">
+            <div class="screen" id="screen"><span id="screen-text">OFF</span></div>
+            <b>X1 firmware</b><small>simulator</small>
+          </div>
+          <div class="overflow" id="overflow"></div>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+
+      <div class="card feed-card">
+        <div class="card-title">
+          <h3>Packet feed</h3>
+          <button class="ghost tiny" id="feed-clear">Clear</button>
+        </div>
+        <ol class="feed" id="feed"></ol>
+      </div>
+    </aside>
+  </main>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script src="/game.js"></script>
+</body>
+</html>

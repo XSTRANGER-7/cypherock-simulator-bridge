@@ -5,14 +5,14 @@ Seven ways to test, from "no compiler" to "full CI". Each one says what it prove
 | # | Way | Needs | What it proves | Command | Last result |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Docker playground | Docker | Anyone can try real SDK calls in a browser | `docker run --rm -p 127.0.0.1:3000:3000 x1-sim-playground` | Built and smoke-tested in CI (`docker` job) |
-| 2 | Web playground (local) | Built simulator + SDK | Same, on your machine, with the simulator window visible | `npm run playground:web` | 33/33 operations, 2781 frames streamed |
+| 2 | Web playground: X1 Quest game (local) | Built simulator + SDK | Same, on your machine, guided level by level | `npm run playground:web` | 11/11 levels in a headless browser; API smoke 33/33 |
 | 3 | Example scripts | Built simulator + SDK | One SDK call each, with output you can paste | `npx tsx examples/<name>.ts` | All pass ([outputs](notes/)) |
 | 4 | Capability matrix | Built simulator + SDK | Which SDK operations work in the simulator | `npm run capabilities` | 37 pass, 0 fail, 1 needs a key press, 6 not run ([report](notes/capabilities.md)) |
 | 5 | Test layers 1-4 | Node; gcc for layer 1/3; simulator for 4 | Transport, C bridge, both together, SDK against firmware | `CYPHEROCK_SIM=1 ./scripts/run-tests.sh` | 17 + 2 + 8 pass (C unit tests on Linux/macOS) |
 | 6 | SDK package tests | SDK fork | `@cypherock/sdk-hw-simulator` contract, real sdk-core handshake | `pnpm --filter @cypherock/sdk-hw-simulator test` | 14/14 |
 | 7 | Firmware unit tests | Firmware build | The patch breaks nothing in the firmware | `./utilities/run_unit_tests.sh -f main -p simulator` | 130 tests, 0 failures |
 
-Plus a browser test of the playground page itself: `npx tsx tools/playground-ui-test.ts` (headless Edge/Chrome, clicks buttons, checks results, saves [notes/playground.png](notes/playground.png)).
+Plus a browser test of the game itself: `npx tsx tools/playground-ui-test.ts` (headless Edge/Chrome plays all 11 levels, fails on any red check, saves screenshots in [notes/](notes/)).
 
 ## 1. Docker (easiest, any OS with Docker)
 
@@ -33,7 +33,7 @@ The image clones Cypherock's upstream repos at the pinned commits, applies `firm
 npm run playground:web                  # http://127.0.0.1:3000
 ```
 
-On the page: **Start** launches the simulator (its window opens), then click any operation. **Run every check** runs all of them and fills a pass/fail table. The right panel shows every 64-byte frame, decoded (`CMD seq=12 chunk 1/1 len=48 | 5555...`), and the simulator's own log.
+The page is a guided game (X1 Quest). Level 0 powers on the simulator (its window opens); each next level unlocks when the current one passes. Every level shows what you do, why it matters and where it is used, advances its steps on real packets, animates the result and runs real checks on it. Level 10 runs all 33 checks. The right panel animates every 64-byte frame and lists it decoded (`CMD seq=12 chunk 1/1 len=48 | 5555...`) with the simulator's log. `/classic.html` keeps the plain all-buttons view.
 
 Operations: raw status packet, device info, wallets; EVM address on 9 chains (any index); sign EIP-1559 transaction (any chain, to, value); sign message (EIP-191); sign EIP-712; Bitcoin, segwit, Litecoin, Dogecoin, Dash xpubs; Solana, NEAR, Tron, XRP, Starknet, ICP, Stellar, Constellation, Sia, Canton public keys. EVM keys, signatures and the BTC xpub show **verified** when ethers derives the same result from the test mnemonic.
 

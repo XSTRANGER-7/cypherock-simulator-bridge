@@ -1,7 +1,54 @@
+diff --git a/common/interfaces/flash_interface/flash_struct.c b/common/interfaces/flash_interface/flash_struct.c
+index 07669b2a..931a5005 100644
+--- a/common/interfaces/flash_interface/flash_struct.c
++++ b/common/interfaces/flash_interface/flash_struct.c
+@@ -142,8 +142,11 @@ static uint16_t serialize_fs(const Flash_Struct *flash_struct, uint8_t *tlv);
+ static void flash_struct_load() {
+   ASSERT((&flash_ram_instance) != NULL);
+ #if USE_SIMULATOR == 1
+-  uint32_t serialized_flash_metadata[2];
+-  read_cmd(FLASH_DATA_ADDRESS, serialized_flash_metadata, 8);
++  /* Bytes, like the device branch below: the tag and length are read byte by
++   * byte (indexes 0..5). A uint32_t[2] made indexes 2..5 read past the array,
++   * so the stored struct was never recognised after a restart. */
++  uint8_t serialized_flash_metadata[8] = {0};
++  read_cmd(FLASH_DATA_ADDRESS, (uint32_t *)serialized_flash_metadata, 8);
+ #else
+   uint8_t *serialized_flash_metadata = (uint8_t *)FLASH_DATA_ADDRESS;
+ #endif
 diff --git a/simulator/BSP/board.c b/simulator/BSP/board.c
-index c9ac629e..65cc504c 100644
+index c9ac629e..55041910 100644
 --- a/simulator/BSP/board.c
 +++ b/simulator/BSP/board.c
+@@ -154,9 +154,9 @@ BSP_Status_t BSP_FlashSectorErase(uint32_t page_address, uint32_t noOfpages) {
+ 
+ BSP_Status_t BSP_FlashSectorWrite(uint32_t *dstAddr,
+                                   const uint32_t *srcAddr,
+-                                  uint32_t noOfWords) {
++                                  uint32_t noOfBytes) {
+   BSP_Status_t status = BSP_OK;
+-  if (!write_file(dstAddr, srcAddr, noOfWords))
++  if (!write_file(dstAddr, srcAddr, noOfBytes))
+     status = BSP_FLASH_ERR;
+   return status;
+ }
+@@ -166,14 +166,14 @@ BSP_Status_t BSP_FlashSectorWrite(uint32_t *dstAddr,
+  */
+ BSP_Status_t BSP_NonVolatileWrite(uint32_t addr,
+                                   uint32_t *srcAddr,
+-                                  uint32_t noOfWords) {
++                                  uint32_t noOfBytes) {
+   BSP_Status_t status = BSP_FLASH_ERR;
+ 
+   status = BSP_FlashSectorErase(addr, 1);
+   if (status != BSP_OK)
+     return status;
+   status = BSP_FLASH_ERR;
+-  status = BSP_FlashSectorWrite((uint32_t *)addr, srcAddr, noOfWords);
++  status = BSP_FlashSectorWrite((uint32_t *)addr, srcAddr, noOfBytes);
+   if (status != BSP_OK)
+     return status;
+   return status;
 @@ -183,7 +183,16 @@ void BSP_reset(void) {
  }
  
@@ -20,6 +67,65 @@ index c9ac629e..65cc504c 100644
  }
  
  void BSP_Buzzer_Timer() {
+diff --git a/simulator/Flash/flash.c b/simulator/Flash/flash.c
+index 242e23e9..a4331160 100644
+--- a/simulator/Flash/flash.c
++++ b/simulator/Flash/flash.c
+@@ -130,6 +130,9 @@ static void init() {
+   init_file(FW_DATA_FILE);
+ }
+ 
++/* `length` is in BYTES, like the device's BSP_NonVolatileRead(addr, dst,
++ * numOfbytes). Reading `length` 32-bit words overflowed the caller's buffer
++ * 4x (e.g. the 8-byte metadata read in flash_struct_load()). */
+ int read_file(uint32_t addr, uint32_t *dstAddr, uint32_t length) {
+   init();
+   FILE *file = fopen(GET_FILE_FROM_ADDRESS(addr), "rb");
+@@ -139,7 +142,7 @@ int read_file(uint32_t addr, uint32_t *dstAddr, uint32_t length) {
+ 
+   errno = 0;
+   fseek(file, offset, SEEK_SET);
+-  uint32_t r_count = fread(dstAddr, sizeof(uint32_t), length, file);
++  uint32_t r_count = fread(dstAddr, 1, length, file);
+ 
+   fclose(file);
+   if (r_count != length) {
+@@ -172,7 +175,9 @@ int erase_file(uint32_t page_address, uint32_t noOfpages) {
+   return 1;
+ }
+ 
+-int write_file(uint32_t *dstAddr, const uint32_t *srcAddr, uint32_t noOfWords) {
++/* `noOfBytes` is in BYTES, like the device's BSP_FlashSectorWrite(dst, src,
++ * noOfbytes). Writing it as a word count read 4x past the source buffer. */
++int write_file(uint32_t *dstAddr, const uint32_t *srcAddr, uint32_t noOfBytes) {
+   init();
+   FILE *file = fopen(GET_FILE_FROM_ADDRESS((size_t)dstAddr), "rb+");
+   if (!file)
+@@ -181,7 +186,7 @@ int write_file(uint32_t *dstAddr, const uint32_t *srcAddr, uint32_t noOfWords) {
+   errno = 0;
+ 
+   fseek(file, offset, SEEK_SET);
+-  fwrite(srcAddr, noOfWords * sizeof(uint32_t), 1, file);
++  fwrite(srcAddr, 1, noOfBytes, file);
+   if (ferror(file)) {
+     fclose(file);
+     perror("");
+diff --git a/simulator/Flash/flash.h b/simulator/Flash/flash.h
+index b2453170..973f99c6 100644
+--- a/simulator/Flash/flash.h
++++ b/simulator/Flash/flash.h
+@@ -10,8 +10,8 @@
+ #define FLASH_SIM_PAGE_SIZE LOG_PAGE_SIZE
+ #define TRANSLATE_ADDR(addr, base) (addr - base)
+ 
+-int read_file(uint32_t addr, uint32_t *dstAddr, uint32_t length);
++int read_file(uint32_t addr, uint32_t *dstAddr, uint32_t length);  // bytes, like the device
+ int erase_file(uint32_t page_address, uint32_t noOfpages);
+-int write_file(uint32_t *dstAddr, const uint32_t *srcAddr, uint32_t noOfWords);
++int write_file(uint32_t *dstAddr, const uint32_t *srcAddr, uint32_t noOfBytes);  // bytes, like the device
+ 
+ #endif
+\ No newline at end of file
 diff --git a/simulator/USB/sim_usb.c b/simulator/USB/sim_usb.c
 index 5ba48cd5..dd86ea8c 100644
 --- a/simulator/USB/sim_usb.c
@@ -873,7 +979,7 @@ index 2f4293d1..ed26315f 100644
    if (mnemonic == NULL || !mnemonic_check(mnemonic)) {
      mnemonic_clear();
 diff --git a/utilities/cmake/simulator/simulator.cmake b/utilities/cmake/simulator/simulator.cmake
-index aecc843d..a69defc5 100644
+index aecc843d..b219f61c 100644
 --- a/utilities/cmake/simulator/simulator.cmake
 +++ b/utilities/cmake/simulator/simulator.cmake
 @@ -150,6 +150,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
@@ -884,13 +990,19 @@ index aecc843d..a69defc5 100644
  
          #unit test framework
          $<$<BOOL:UNIT_TESTS_SWITCH>:${PROJECT_SOURCE_DIR}/tests/framework/unity>
-@@ -183,5 +184,21 @@ IF(UNIT_TESTS_SWITCH)
+@@ -183,5 +184,27 @@ IF(UNIT_TESTS_SWITCH)
          target_link_libraries(${EXECUTABLE} PRIVATE -lgcov )
  ENDIF(UNIT_TESTS_SWITCH)
  target_link_libraries(${EXECUTABLE} PRIVATE ${SDL2_LIBRARIES} -lm)
 +# simulator/transport/sim_socket.c uses Winsock on Windows
 +if(WIN32)
 +    target_link_libraries(${EXECUTABLE} PRIVATE ws2_32)
++endif()
++# Stack protector everywhere (Ubuntu's gcc enables it by default; MinGW does
++# not), so stack overflows in simulator code abort on every host, not only Linux.
++if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND NOT UNIT_TESTS_SWITCH)
++    target_compile_options(${EXECUTABLE} PRIVATE -fstack-protector-strong)
++    target_link_options(${EXECUTABLE} PRIVATE -fstack-protector-strong)
 +endif()
 +# Host compilers newer than the device toolchain (arm-none-eabi-gcc 10.3):
 +# GCC 14+ turns some long-standing warnings into errors and GCC 15+ defaults
