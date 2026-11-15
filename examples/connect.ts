@@ -15,12 +15,13 @@ async function main() {
   console.log('Type:', await connection.getConnectionType());
 
   await connection.send(new TextEncoder().encode('hello x1'));
-  for (let i = 0; i < 100; i += 1) {
+  for (let i = 0; i < 500; i += 1) {
     const frame = await connection.receive();
     if (frame) {
       console.log('Reply (first 16 bytes):', Buffer.from(frame.subarray(0, 16)).toString('hex'));
       break;
     }
+    await new Promise((r) => setTimeout(r, 2)); // receive() never waits; yield to the socket
   }
   await connection.destroy();
 }

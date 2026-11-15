@@ -1,0 +1,6 @@
+[1;34m[bridge][0m Starting: /c/Users/stranger/Downloads/cypherock/x1_wallet_firmware/bin/Cypherock_Simulator.exe (port 52640, state /c/Users/stranger/Downloads/cypherock/cypherock-simulator-bridge/.sim-state)
+[wait-ready] device_idle_state=NULL
+[wait-ready] device_idle_state=DEVICE
+[wait-ready] device_idle_state=IDLE
+[wait-ready] simulator is idle and ready
+[1;34m[bridge][0m Ready on 127.0.0.1:52640 (log: /c/Users/stranger/Downloads/cypherock/cypherock-simulator-bridge/.sim.log)

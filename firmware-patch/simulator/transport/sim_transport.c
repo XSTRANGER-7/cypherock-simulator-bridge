@@ -1,66 +1,76 @@
 /**
  * @file    sim_transport.c
- * @brief   Routes frames between the TCP bridge and the firmware USB layer.
+ * @brief   Routes frames between the TCP bridge and the simulator USB device.
  *
- * ---------------------------------------------------------------------------
- *  INTEGRATION POINT (read docs/firmware-integration.md before editing)
- * ---------------------------------------------------------------------------
- * The firmware has a function that a real USB stack calls when a report
- * arrives from the host. In the simulator build that path is stubbed out.
- * Your job is to:
- *
- *   1. Find that receive entry point. Start with:
- *        grep -Rni "Receive_FS" simulator src
- *        grep -Rni "comm_packet_parser\|usb_receive\|packet_parser" src
- *   2. Put its name in SIM_FIRMWARE_RX below (or edit on_frame_from_sdk).
- *   3. Find the simulator's USB transmit function and make it call
- *      sim_transport_write().
- *   4. If the packet parser is only registered for non-simulator builds
- *      (look for #ifndef / #if !USE_SIMULATOR around its init), enable it
- *      for the simulator, checking for hardware-only dependencies first.
- *
- * Until step 2 is done, SIM_TRANSPORT_LOOPBACK echoes frames back so you can
- * prove the socket works inside the simulator binary.
+ * sim_socket.c knows nothing about Cypherock; this file adds the runtime
+ * switches (loopback, trace) and hands every frame to the receive callback
+ * that simulator/USB/sim_usb.c registers.
  */
 #include "sim_transport.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "sim_socket.h"
 
-#ifndef SIM_TRANSPORT_LOOPBACK
-#define SIM_TRANSPORT_LOOPBACK 1
-#endif
+static sim_transport_rx_cb_t firmware_rx = NULL;
+static int loopback = 0; /* CYPHEROCK_SIM_LOOPBACK=1 */
+static int trace = 0;    /* CYPHEROCK_SIM_VERBOSE=1 */
+static int in_tick = 0;
 
-#if !SIM_TRANSPORT_LOOPBACK
-/* Declare the firmware receive function you found in step 1, for example:
- *   extern void SIM_Receive_FS(uint8_t *buf, uint32_t *len);
- * and define SIM_FIRMWARE_RX(frame, len) to call it. */
-#ifndef SIM_FIRMWARE_RX
-#error "Define SIM_FIRMWARE_RX(frame, len) to call the firmware USB receive function"
-#endif
-#endif
-
-static void on_frame_from_sdk(const uint8_t *frame, size_t len) {
-#if SIM_TRANSPORT_LOOPBACK
-  /* Phase 1 proof: echo each frame back to the SDK. */
-  sim_socket_send(frame, len);
-#else
-  SIM_FIRMWARE_RX(frame, len);
-#endif
+static void dump(const char *dir, const uint8_t *buf, size_t len) {
+  if (!trace)
+    return;
+  fprintf(stderr, "[sim_transport] %s %2u:", dir, (unsigned)len);
+  for (size_t i = 0; i < len; i++)
+    fprintf(stderr, " %02x", buf[i]);
+  fputc('\n', stderr);
+  fflush(stderr);
 }
 
-void sim_transport_init(void) {
-  sim_socket_status_t status = sim_socket_init(0, on_frame_from_sdk);
-  if (status != SIM_SOCKET_OK) {
-    fprintf(stderr, "[sim_transport] socket bridge failed to start (%d)\n", status);
+static void on_frame(const uint8_t *frame, size_t len) {
+  dump("rx", frame, len);
+  if (loopback) {
+    sim_socket_send(frame, len);
+    return;
   }
+  if (firmware_rx)
+    firmware_rx(frame, len);
+}
+
+int sim_transport_init(sim_transport_rx_cb_t rx_cb) {
+  const char *lb = getenv("CYPHEROCK_SIM_LOOPBACK");
+  const char *vb = getenv("CYPHEROCK_SIM_VERBOSE");
+  loopback = (lb && lb[0] == '1');
+  trace = (vb && vb[0] == '1');
+  firmware_rx = rx_cb;
+
+  if (sim_socket_init(0, on_frame) != SIM_SOCKET_OK) {
+    fprintf(stderr,
+            "[sim_transport] bridge not started (port busy?); running without "
+            "a host\n");
+    return -1;
+  }
+  if (loopback)
+    fprintf(stderr,
+            "[sim_transport] LOOPBACK: frames are echoed, firmware is not "
+            "called\n");
+  return 0;
 }
 
 void sim_transport_tick(void) {
+  if (in_tick) /* never re-enter while the parser is running */
+    return;
+  in_tick = 1;
   sim_socket_poll();
+  in_tick = 0;
 }
 
 int sim_transport_write(const uint8_t *data, size_t len) {
+  dump("tx", data, len);
   return sim_socket_send(data, len) == SIM_SOCKET_OK ? 0 : -1;
+}
+
+int sim_transport_is_connected(void) {
+  return sim_socket_is_connected();
 }

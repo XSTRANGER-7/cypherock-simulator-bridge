@@ -1,0 +1,875 @@
+diff --git a/simulator/BSP/board.c b/simulator/BSP/board.c
+index c9ac629e..65cc504c 100644
+--- a/simulator/BSP/board.c
++++ b/simulator/BSP/board.c
+@@ -183,7 +183,16 @@ void BSP_reset(void) {
+ }
+ 
+ void BSP_DelayMs(uint32_t delayValue) {
+-  SDL_Delay(delayValue);
++  /* Poll the USB bridge while waiting, in 5 ms slices, the way the USB
++   * interrupt fires during delays on real hardware. get_events() calls this
++   * once per pass (common/core/events.c), so host packets are always served
++   * while the firmware waits for input. */
++  do {
++    uint32_t step = delayValue > 5 ? 5 : delayValue;
++    usbsim_continue_loop();
++    SDL_Delay(step);
++    delayValue -= step;
++  } while (delayValue > 0);
+ }
+ 
+ void BSP_Buzzer_Timer() {
+diff --git a/simulator/USB/sim_usb.c b/simulator/USB/sim_usb.c
+index 5ba48cd5..dd86ea8c 100644
+--- a/simulator/USB/sim_usb.c
++++ b/simulator/USB/sim_usb.c
+@@ -1,149 +1,46 @@
++/**
++ * @file    sim_usb.c
++ * @brief   Simulator USB device: carries USB reports over the localhost TCP
++ *          bridge (simulator/transport) instead of a USB cable.
++ *
++ * Replaces the old file-based stub (/tmp/cypherock_device_*.bin), whose
++ * receive path was a TODO and whose poll was never called.
++ */
+ #include "sim_usb.h"
+ 
+-#include <pthread.h>
+-#include <stdlib.h>
+-#include <unistd.h>
++#include "../testing/sim_test_wallet.h"
++#include "sim_transport.h"
++#include "usb_api_priv.h" /* comm_packet_parser() */
+ 
+-#ifdef _WIN32
+-#define TEMP_ENV_VAR "TEMP"
+-#define SIM_USB_RX_FILE_NAME "cypherock_device_in.bin"
+-#define SIM_USB_TX_FILE_NAME "cypherock_device_out.bin"
+-#else
+-#define SIM_USB_RX_FILE_NAME "/tmp/cypherock_device_in.bin"
+-#define SIM_USB_TX_FILE_NAME "/tmp/cypherock_device_out.bin"
+-#endif
+-
+-static FILE *rx_file = NULL;
+-static FILE *tx_file = NULL;
+-static uint8_t rec_buffer[80];
+-volatile uint8_t rec_counter = 0;
+-static pthread_t ptid;
+-
+-static void check_for_usb_data();
+-static int8_t SIM_Receive_FS(const uint8_t *Buf, const uint32_t *Len);
+-static uint32_t seek_pos = 0;
+-
+-void SIM_USB_DEVICE_Init() {
+-  char file_name[250];
+-
+-  errno = 0;
+-
+-#ifdef _WIN32
+-  snprintf(file_name,
+-           sizeof(file_name),
+-           "%s\\%s",
+-           getenv(TEMP_ENV_VAR),
+-           SIM_USB_RX_FILE_NAME);
+-#else
+-  snprintf(file_name, sizeof(file_name), "%s", SIM_USB_RX_FILE_NAME);
+-#endif
+-
+-  rx_file = fopen(file_name, "wb");
+-  if (errno) {
+-    perror("rx file");
+-    return;
+-  }
+-  fclose(rx_file);
+-
+-#ifdef _WIN32
+-  snprintf(file_name,
+-           sizeof(file_name),
+-           "%s\\%s",
+-           getenv(TEMP_ENV_VAR),
+-           SIM_USB_TX_FILE_NAME);
+-#else
+-  snprintf(file_name, sizeof(file_name), "%s", SIM_USB_TX_FILE_NAME);
+-#endif
+-  tx_file = fopen(file_name, "wb");
+-  fclose(tx_file);
+-  if (errno)
+-    perror("tx file");
+-
+-  rx_file = NULL;
+-  tx_file = NULL;
++/* Same job as the hardware USB receive path: give the report to the parser
++ * that usb_init() registers with lusb on a real device (usb_api.c:132-136).
++ * The interface must stay the same for a whole command, or the firmware
++ * answers APP_BUSY_WITH_OTHER_INTERFACE (usb_internals.c:191-196). */
++static int8_t SIM_Receive_FS(const uint8_t *Buf, const uint32_t *Len) {
++  comm_packet_parser(Buf, (uint16_t)*Len, COMM_LIBUSB__HID);
++  return USBD_OK;
+ }
+ 
+-void SIM_Transmit_FS(uint8_t *data, uint8_t size) {
+-  char file_name[250];
+-
+-#ifdef _WIN32
+-  snprintf(file_name,
+-           sizeof(file_name),
+-           "%s\\%s",
+-           getenv(TEMP_ENV_VAR),
+-           SIM_USB_TX_FILE_NAME);
+-#else
+-  snprintf(file_name, sizeof(file_name), "%s", SIM_USB_TX_FILE_NAME);
+-#endif
+-
+-  errno = 0;
+-  tx_file = fopen(file_name, "ab");
+-  if (ftell(tx_file) > 1048576) {    // size of tx is >1MB erase all
+-    fclose(tx_file);
+-    tx_file = fopen(file_name, "wb");
+-  }
+-  if (errno)
+-    perror("ERROR (usb transmit)");
+-  if (!tx_file)
+-    return;
+-  errno = 0;
+-  fwrite(data, sizeof(uint8_t), size, tx_file);
+-  if (errno)
+-    perror("ERROR (usb transmit)");
+-  fclose(tx_file);
+-  tx_file = NULL;
++static void on_frame_from_host(const uint8_t *frame, size_t len) {
++  uint32_t n = (uint32_t)len; /* always SIM_SOCKET_FRAME_SIZE (64) */
++  SIM_Receive_FS(frame, &n);
+ }
+ 
+-static int8_t SIM_Receive_FS(const uint8_t *Buf, const uint32_t *Len) {
+-  // TODO
+-  return (USBD_OK);
+-  /* USER CODE END 6 */
++void SIM_USB_DEVICE_Init() {
++  /* Optional SDK test fixture; no-op unless CYPHEROCK_SIM_TEST_MNEMONIC is set */
++  sim_test_wallet_load();
++  sim_transport_init(on_frame_from_host);
+ }
+ 
+-static void check_for_usb_data() {
+-  FILE *file;
+-  char file_name[250];
+-
+-#ifdef _WIN32
+-  snprintf(file_name,
+-           sizeof(file_name),
+-           "%s\\%s",
+-           getenv(TEMP_ENV_VAR),
+-           SIM_USB_RX_FILE_NAME);
+-#else
+-  snprintf(file_name, sizeof(file_name), "%s", SIM_USB_RX_FILE_NAME);
+-#endif
+-
+-  uint8_t buffer[2048];
+-
+-  file = fopen(file_name, "rb");
+-  fseek(file, seek_pos, SEEK_SET);
+-  errno = 0;
+-  uint32_t count = fread(buffer, sizeof(uint8_t), COMM_HEADER_SIZE, file);
+-  if (count == COMM_HEADER_SIZE) {
+-    count = fread(buffer + COMM_HEADER_SIZE,
+-                  sizeof(uint8_t),
+-                  buffer[DATA_SIZE_INDEX],
+-                  file) +
+-            COMM_HEADER_SIZE;
+-    seek_pos += count;
+-    printf("%d\n", count);
+-    for (int i = 0; i < count; i++)
+-      printf("%02X", buffer[i]);
+-    printf("\n");
+-    if (errno)
+-      perror("ERROR (rx file)");
+-    else
+-      SIM_Receive_FS(buffer, &count);
+-  }
+-  fclose(file);
+-  if (seek_pos > 1048576) {    // size of rx is >1MB erase all
+-    file = fopen(file_name, "wb");
+-    if (file)
+-      fclose(file);
+-  }
++/* Called by comm_write_packet() (usb_internals.c:423) and by the parser for
++ * the SDK version reply (usb_rx_parser.c:181). size is 16..64 bytes. */
++void SIM_Transmit_FS(uint8_t *data, uint8_t size) {
++  /* With no host connected the packet is dropped, like a device with no USB
++   * host. The SDK always starts a new exchange after connecting. */
++  (void)sim_transport_write(data, size);
+ }
+ 
++/* Called from BSP_DelayMs() in simulator/BSP/board.c. */
+ void usbsim_continue_loop() {
+-  check_for_usb_data();
+-}
+\ No newline at end of file
++  sim_transport_tick();
++}
+diff --git a/simulator/testing/sim_test_wallet.c b/simulator/testing/sim_test_wallet.c
+new file mode 100644
+index 00000000..491c5304
+--- /dev/null
++++ b/simulator/testing/sim_test_wallet.c
+@@ -0,0 +1,70 @@
++/**
++ * @file    sim_test_wallet.c
++ * @brief   SIMULATOR ONLY: a wallet backed by a published test mnemonic.
++ *
++ * The simulator's emulated X1 card (simulator/nfc/applet.c) does not speak
++ * the encrypted card protocol the firmware uses, so wallets cannot be created
++ * or rebuilt through cards in the simulator. For SDK testing, this file adds
++ * a flash entry for a known test mnemonic; reconstruct_seed() derives the
++ * seed from the same mnemonic (src/wallet/reconstruct_wallet_flow.c).
++ *
++ * NEVER use a real seed: the simulator's flash is a plain file on disk.
++ */
++#include "sim_test_wallet.h"
++
++#if USE_SIMULATOR != 1
++#error "sim_test_wallet.c must only be compiled into simulator builds"
++#endif
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "flash_api.h"
++#include "flash_config.h"
++#include "flash_struct.h"
++#include "flash_struct_priv.h" /* get_flash_ram_instance() */
++#include "wallet_utilities.h"
++
++#define SIM_TEST_WALLET_NAME "SIMTEST"
++
++void sim_test_wallet_load(void) {
++  const char *mnemonic = getenv("CYPHEROCK_SIM_TEST_MNEMONIC");
++  if (NULL == mnemonic || 0 == mnemonic[0])
++    return;
++
++  Flash_Wallet wallet;
++  memset(&wallet, 0, sizeof(wallet));
++  calculate_wallet_id(wallet.wallet_id, mnemonic);
++
++  uint8_t existing = 0;
++  if (SUCCESS_ == get_index_by_name(SIM_TEST_WALLET_NAME, &existing)) {
++    const Flash_Struct *flash = get_flash_ram_instance();
++    if (0 != memcmp(flash->wallets[existing].wallet_id,
++                    wallet.wallet_id,
++                    WALLET_ID_SIZE)) {
++      fprintf(stderr,
++              "[sim] WARNING: wallet '%s' exists for a different mnemonic. "
++              "Delete the simulator state files to reload it.\n",
++              SIM_TEST_WALLET_NAME);
++    }
++    return;
++  }
++
++  strncpy((char *)wallet.wallet_name,
++          SIM_TEST_WALLET_NAME,
++          sizeof(wallet.wallet_name) - 1);
++  wallet.wallet_info = 0;       /* no PIN, no passphrase */
++  wallet.state = VALID_WALLET;
++  wallet.cards_states = 0x0F;   /* all 4 cards "hold" a share */
++  wallet.is_wallet_locked = 0;
++
++  uint32_t index = 0;
++  int status = add_wallet_to_flash(&wallet, &index);
++  fprintf(stderr,
++          "[sim] TEST WALLET '%s' %s (flash index %u). Test mnemonics only, "
++          "never a real seed.\n",
++          SIM_TEST_WALLET_NAME,
++          SUCCESS_ == status ? "loaded" : "could not be added",
++          (unsigned)index);
++}
+diff --git a/simulator/testing/sim_test_wallet.h b/simulator/testing/sim_test_wallet.h
+new file mode 100644
+index 00000000..fca11027
+--- /dev/null
++++ b/simulator/testing/sim_test_wallet.h
+@@ -0,0 +1,15 @@
++/**
++ * @file    sim_test_wallet.h
++ * @brief   SIMULATOR ONLY: load a wallet entry for a published test mnemonic.
++ */
++#ifndef SIM_TEST_WALLET_H
++#define SIM_TEST_WALLET_H
++
++/**
++ * If CYPHEROCK_SIM_TEST_MNEMONIC is set, make sure the simulator's flash holds
++ * a wallet named "SIMTEST" whose id matches that mnemonic. Does nothing when
++ * the variable is unset. Pairs with the shortcut in reconstruct_seed().
++ */
++void sim_test_wallet_load(void);
++
++#endif /* SIM_TEST_WALLET_H */
+diff --git a/simulator/transport/sim_socket.c b/simulator/transport/sim_socket.c
+new file mode 100644
+index 00000000..619909f7
+--- /dev/null
++++ b/simulator/transport/sim_socket.c
+@@ -0,0 +1,275 @@
++/**
++ * @file    sim_socket.c
++ * @brief   Non-blocking TCP frame server for the X1 firmware simulator.
++ *
++ * Carries fixed-size USB-style frames between the Cypherock SDK
++ * (@cypherock/sdk-hw-simulator) and the simulator. Single-threaded and
++ * non-blocking: call sim_socket_poll() often from the simulator's main
++ * thread. Binds to 127.0.0.1 only.
++ *
++ * Builds with POSIX sockets (Linux, macOS) and Winsock (Windows / MinGW).
++ */
++#include "sim_socket.h"
++
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#ifdef _WIN32
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#include <winsock2.h>
++#include <ws2tcpip.h>
++
++typedef SOCKET sim_fd_t;
++#define SIM_INVALID_FD INVALID_SOCKET
++#define SIM_SEND_FLAGS 0
++#define sim_close_fd closesocket
++
++static int sim_would_block(void) {
++  return WSAGetLastError() == WSAEWOULDBLOCK;
++}
++
++static void sim_sleep_short(void) {
++  Sleep(1);
++}
++
++static int set_non_blocking(sim_fd_t fd) {
++  u_long mode = 1;
++  return ioctlsocket(fd, FIONBIO, &mode) == 0 ? 0 : -1;
++}
++#else
++#include <arpa/inet.h>
++#include <fcntl.h>
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <sys/socket.h>
++#include <unistd.h>
++
++typedef int sim_fd_t;
++#define SIM_INVALID_FD (-1)
++#ifdef MSG_NOSIGNAL
++#define SIM_SEND_FLAGS MSG_NOSIGNAL
++#else
++#define SIM_SEND_FLAGS 0 /* macOS: SO_NOSIGPIPE is set on the client socket */
++#endif
++#define sim_close_fd close
++
++static int sim_would_block(void) {
++  return errno == EAGAIN || errno == EWOULDBLOCK;
++}
++
++static void sim_sleep_short(void) {
++  usleep(100);
++}
++
++static int set_non_blocking(sim_fd_t fd) {
++  int flags = fcntl(fd, F_GETFL, 0);
++  if (flags < 0)
++    return -1;
++  return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
++}
++#endif
++
++#define SIM_LOG(...)                                                           \
++  do {                                                                         \
++    if (sim_socket_verbose) {                                                  \
++      fprintf(stderr, "[sim_socket] ");                                        \
++      fprintf(stderr, __VA_ARGS__);                                            \
++      fprintf(stderr, "\n");                                                   \
++    }                                                                          \
++  } while (0)
++
++/* Give up on a client that stops reading for about 2 seconds. */
++#define SIM_SOCKET_MAX_WRITE_WAITS 20000
++
++static sim_fd_t listen_fd = SIM_INVALID_FD;
++static sim_fd_t client_fd = SIM_INVALID_FD;
++static uint16_t bound_port = 0;
++static sim_socket_rx_cb_t on_frame = NULL;
++static uint8_t rx_buf[SIM_SOCKET_FRAME_SIZE];
++static size_t rx_len = 0;
++static int sim_socket_verbose = 0;
++#ifdef _WIN32
++static int wsa_started = 0;
++#endif
++
++static void close_client(void) {
++  if (client_fd != SIM_INVALID_FD) {
++    sim_close_fd(client_fd);
++    client_fd = SIM_INVALID_FD;
++    rx_len = 0;
++    SIM_LOG("client disconnected");
++  }
++}
++
++static void close_listener(void) {
++  if (listen_fd != SIM_INVALID_FD) {
++    sim_close_fd(listen_fd);
++    listen_fd = SIM_INVALID_FD;
++  }
++}
++
++sim_socket_status_t sim_socket_init(uint16_t port, sim_socket_rx_cb_t rx_cb) {
++  const char *verbose = getenv("CYPHEROCK_SIM_VERBOSE");
++  sim_socket_verbose = (verbose && verbose[0] == '1');
++
++  if (port == 0) {
++    const char *env_port = getenv("CYPHEROCK_SIM_PORT");
++    port = env_port ? (uint16_t)atoi(env_port) : SIM_SOCKET_DEFAULT_PORT;
++  }
++
++#ifdef _WIN32
++  if (!wsa_started) {
++    WSADATA wsa;
++    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
++      return SIM_SOCKET_ERR_SOCKET;
++    wsa_started = 1;
++  }
++#endif
++
++  on_frame = rx_cb;
++  listen_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++  if (listen_fd == SIM_INVALID_FD)
++    return SIM_SOCKET_ERR_SOCKET;
++
++#ifndef _WIN32
++  /* On Windows SO_REUSEADDR lets another process steal the port; skip it. */
++  int yes = 1;
++  setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
++#endif
++
++  struct sockaddr_in addr;
++  memset(&addr, 0, sizeof(addr));
++  addr.sin_family = AF_INET;
++  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); /* never beyond localhost */
++  addr.sin_port = htons(port);
++
++  if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
++    close_listener();
++    return SIM_SOCKET_ERR_BIND;
++  }
++  if (listen(listen_fd, 1) != 0 || set_non_blocking(listen_fd) != 0) {
++    close_listener();
++    return SIM_SOCKET_ERR_LISTEN;
++  }
++
++  socklen_t addr_len = sizeof(addr);
++  getsockname(listen_fd, (struct sockaddr *)&addr, &addr_len);
++  bound_port = ntohs(addr.sin_port);
++
++  /* Always printed: scripts/start-simulator.sh waits for this line. */
++  fprintf(stderr, "[sim_socket] listening on 127.0.0.1:%u\n", bound_port);
++  fflush(stderr);
++  return SIM_SOCKET_OK;
++}
++
++static void accept_client(void) {
++  sim_fd_t fd = accept(listen_fd, NULL, NULL);
++  if (fd == SIM_INVALID_FD)
++    return; /* would block: nobody waiting */
++
++  if (client_fd != SIM_INVALID_FD) {
++    /* One client at a time, like one USB host. Newest wins. */
++    close_client();
++  }
++  set_non_blocking(fd);
++  int yes = 1;
++  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&yes, sizeof(yes));
++#ifdef SO_NOSIGPIPE
++  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
++#endif
++  client_fd = fd;
++  rx_len = 0;
++  SIM_LOG("client connected");
++}
++
++static void read_client(void) {
++  uint8_t chunk[512];
++  for (;;) {
++    int n = (int)recv(client_fd, (char *)chunk, (int)sizeof(chunk), 0);
++    if (n == 0) {
++      close_client();
++      return;
++    }
++    if (n < 0) {
++      if (!sim_would_block())
++        close_client();
++      return;
++    }
++    for (int i = 0; i < n; i++) {
++      rx_buf[rx_len++] = chunk[i];
++      if (rx_len == SIM_SOCKET_FRAME_SIZE) {
++        rx_len = 0;
++        if (on_frame)
++          on_frame(rx_buf, SIM_SOCKET_FRAME_SIZE);
++        if (client_fd == SIM_INVALID_FD)
++          return; /* the callback may have closed us */
++      }
++    }
++  }
++}
++
++void sim_socket_poll(void) {
++  if (listen_fd == SIM_INVALID_FD)
++    return;
++  accept_client();
++  if (client_fd != SIM_INVALID_FD)
++    read_client();
++}
++
++static int write_all(const uint8_t *buf, size_t len) {
++  size_t sent = 0;
++  int waits = 0;
++  while (sent < len) {
++    int n = (int)send(
++        client_fd, (const char *)buf + sent, (int)(len - sent), SIM_SEND_FLAGS);
++    if (n < 0) {
++      if (sim_would_block() && waits++ < SIM_SOCKET_MAX_WRITE_WAITS) {
++        sim_sleep_short();
++        continue;
++      }
++      return -1;
++    }
++    sent += (size_t)n;
++  }
++  return 0;
++}
++
++sim_socket_status_t sim_socket_send(const uint8_t *data, size_t len) {
++  if (client_fd == SIM_INVALID_FD)
++    return SIM_SOCKET_ERR_NOT_CONNECTED;
++
++  uint8_t frame[SIM_SOCKET_FRAME_SIZE];
++  size_t offset = 0;
++  do {
++    size_t take = len - offset;
++    if (take > SIM_SOCKET_FRAME_SIZE)
++      take = SIM_SOCKET_FRAME_SIZE;
++    memset(frame, 0, sizeof(frame));
++    if (take > 0)
++      memcpy(frame, data + offset, take);
++    if (write_all(frame, sizeof(frame)) != 0) {
++      close_client();
++      return SIM_SOCKET_ERR_WRITE;
++    }
++    offset += take;
++  } while (offset < len);
++  return SIM_SOCKET_OK;
++}
++
++int sim_socket_is_connected(void) {
++  return client_fd != SIM_INVALID_FD;
++}
++
++uint16_t sim_socket_port(void) {
++  return bound_port;
++}
++
++void sim_socket_deinit(void) {
++  close_client();
++  close_listener();
++  bound_port = 0;
++}
+diff --git a/simulator/transport/sim_socket.h b/simulator/transport/sim_socket.h
+new file mode 100644
+index 00000000..c85cea8f
+--- /dev/null
++++ b/simulator/transport/sim_socket.h
+@@ -0,0 +1,73 @@
++/**
++ * @file    sim_socket.h
++ * @brief   Non-blocking TCP server that carries USB-style frames between the
++ *          Cypherock SDK (hw-simulator package) and the X1 firmware simulator.
++ *
++ * The simulator runs a single-threaded main loop. This module never blocks:
++ * call sim_socket_poll() once per loop iteration and it will accept a client,
++ * read whatever bytes are available, rebuild fixed-size frames and hand each
++ * complete frame to the callback.
++ *
++ * Copy into: x1_wallet_firmware/simulator/transport/
++ */
++#ifndef SIM_SOCKET_H
++#define SIM_SOCKET_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/** Must match FRAME_SIZE in packages/hw-simulator/src/constants.ts. */
++#ifndef SIM_SOCKET_FRAME_SIZE
++#define SIM_SOCKET_FRAME_SIZE 64
++#endif
++
++/** Default TCP port; override with env CYPHEROCK_SIM_PORT at runtime. */
++#ifndef SIM_SOCKET_DEFAULT_PORT
++#define SIM_SOCKET_DEFAULT_PORT 52640
++#endif
++
++/** Called once per complete frame received from the SDK. */
++typedef void (*sim_socket_rx_cb_t)(const uint8_t *frame, size_t len);
++
++typedef enum {
++  SIM_SOCKET_OK = 0,
++  SIM_SOCKET_ERR_SOCKET = -1,
++  SIM_SOCKET_ERR_BIND = -2,
++  SIM_SOCKET_ERR_LISTEN = -3,
++  SIM_SOCKET_ERR_NOT_CONNECTED = -4,
++  SIM_SOCKET_ERR_WRITE = -5,
++} sim_socket_status_t;
++
++/**
++ * Start listening on 127.0.0.1:port. Pass port 0 to use
++ * CYPHEROCK_SIM_PORT or SIM_SOCKET_DEFAULT_PORT.
++ */
++sim_socket_status_t sim_socket_init(uint16_t port, sim_socket_rx_cb_t rx_cb);
++
++/** Accept/read without blocking. Call every main-loop iteration. */
++void sim_socket_poll(void);
++
++/**
++ * Send data to the connected SDK client, split into zero-padded frames of
++ * SIM_SOCKET_FRAME_SIZE bytes.
++ */
++sim_socket_status_t sim_socket_send(const uint8_t *data, size_t len);
++
++/** 1 if an SDK client is connected, else 0. */
++int sim_socket_is_connected(void);
++
++/** Port actually bound (useful when 0 was requested in tests). */
++uint16_t sim_socket_port(void);
++
++/** Close client and listener. */
++void sim_socket_deinit(void);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* SIM_SOCKET_H */
+diff --git a/simulator/transport/sim_transport.c b/simulator/transport/sim_transport.c
+new file mode 100644
+index 00000000..0fe12a2a
+--- /dev/null
++++ b/simulator/transport/sim_transport.c
+@@ -0,0 +1,76 @@
++/**
++ * @file    sim_transport.c
++ * @brief   Routes frames between the TCP bridge and the simulator USB device.
++ *
++ * sim_socket.c knows nothing about Cypherock; this file adds the runtime
++ * switches (loopback, trace) and hands every frame to the receive callback
++ * that simulator/USB/sim_usb.c registers.
++ */
++#include "sim_transport.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++
++#include "sim_socket.h"
++
++static sim_transport_rx_cb_t firmware_rx = NULL;
++static int loopback = 0; /* CYPHEROCK_SIM_LOOPBACK=1 */
++static int trace = 0;    /* CYPHEROCK_SIM_VERBOSE=1 */
++static int in_tick = 0;
++
++static void dump(const char *dir, const uint8_t *buf, size_t len) {
++  if (!trace)
++    return;
++  fprintf(stderr, "[sim_transport] %s %2u:", dir, (unsigned)len);
++  for (size_t i = 0; i < len; i++)
++    fprintf(stderr, " %02x", buf[i]);
++  fputc('\n', stderr);
++  fflush(stderr);
++}
++
++static void on_frame(const uint8_t *frame, size_t len) {
++  dump("rx", frame, len);
++  if (loopback) {
++    sim_socket_send(frame, len);
++    return;
++  }
++  if (firmware_rx)
++    firmware_rx(frame, len);
++}
++
++int sim_transport_init(sim_transport_rx_cb_t rx_cb) {
++  const char *lb = getenv("CYPHEROCK_SIM_LOOPBACK");
++  const char *vb = getenv("CYPHEROCK_SIM_VERBOSE");
++  loopback = (lb && lb[0] == '1');
++  trace = (vb && vb[0] == '1');
++  firmware_rx = rx_cb;
++
++  if (sim_socket_init(0, on_frame) != SIM_SOCKET_OK) {
++    fprintf(stderr,
++            "[sim_transport] bridge not started (port busy?); running without "
++            "a host\n");
++    return -1;
++  }
++  if (loopback)
++    fprintf(stderr,
++            "[sim_transport] LOOPBACK: frames are echoed, firmware is not "
++            "called\n");
++  return 0;
++}
++
++void sim_transport_tick(void) {
++  if (in_tick) /* never re-enter while the parser is running */
++    return;
++  in_tick = 1;
++  sim_socket_poll();
++  in_tick = 0;
++}
++
++int sim_transport_write(const uint8_t *data, size_t len) {
++  dump("tx", data, len);
++  return sim_socket_send(data, len) == SIM_SOCKET_OK ? 0 : -1;
++}
++
++int sim_transport_is_connected(void) {
++  return sim_socket_is_connected();
++}
+diff --git a/simulator/transport/sim_transport.h b/simulator/transport/sim_transport.h
+new file mode 100644
+index 00000000..bb565415
+--- /dev/null
++++ b/simulator/transport/sim_transport.h
+@@ -0,0 +1,45 @@
++/**
++ * @file    sim_transport.h
++ * @brief   Glue between the TCP frame server (sim_socket) and the simulator's
++ *          USB device (simulator/USB/sim_usb.c).
++ *
++ * Environment variables (read once at start-up):
++ *   CYPHEROCK_SIM_PORT=52640   TCP port on 127.0.0.1
++ *   CYPHEROCK_SIM_VERBOSE=1    hex trace of every frame on stderr
++ *   CYPHEROCK_SIM_LOOPBACK=1   echo frames back instead of calling firmware
++ */
++#ifndef SIM_TRANSPORT_H
++#define SIM_TRANSPORT_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/** Called once for every 64-byte frame that arrives from the SDK. */
++typedef void (*sim_transport_rx_cb_t)(const uint8_t *frame, size_t len);
++
++/**
++ * Listen on 127.0.0.1:52640 (or $CYPHEROCK_SIM_PORT). Returns 0 on success.
++ * On failure it logs and returns -1; the simulator keeps running without a
++ * host, like a device with no USB cable.
++ */
++int sim_transport_init(sim_transport_rx_cb_t rx_cb);
++
++/** Non-blocking: accept, read and dispatch complete frames. Safe to call
++ * often; re-entrant calls are ignored. */
++void sim_transport_tick(void);
++
++/** Firmware to SDK. Zero-pads into 64-byte frames. Returns 0 on success. */
++int sim_transport_write(const uint8_t *data, size_t len);
++
++/** 1 if an SDK client is connected, else 0. */
++int sim_transport_is_connected(void);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* SIM_TRANSPORT_H */
+diff --git a/src/wallet/reconstruct_wallet_flow.c b/src/wallet/reconstruct_wallet_flow.c
+index 2f4293d1..d7a3ac34 100644
+--- a/src/wallet/reconstruct_wallet_flow.c
++++ b/src/wallet/reconstruct_wallet_flow.c
+@@ -75,6 +75,11 @@
+ #include "wallet_list.h"
+ #include "wallet_utilities.h"
+ 
++#if USE_SIMULATOR == 1
++#include <stdlib.h>
++#include <string.h>
++#endif
++
+ /*****************************************************************************
+  * EXTERN VARIABLES
+  *****************************************************************************/
+@@ -415,6 +420,23 @@ bool reconstruct_seed(const uint8_t *wallet_id,
+     return false;
+   }
+ 
++#if USE_SIMULATOR == 1
++  /* SIMULATOR ONLY, testing aid: the simulator's emulated X1 card does not
++   * speak the encrypted card protocol, so a wallet's seed cannot be rebuilt
++   * from card shares. When CYPHEROCK_SIM_TEST_MNEMONIC is set and matches the
++   * requested wallet id, derive the seed from that published test mnemonic
++   * instead. Never compiled into device builds (USE_SIMULATOR=0). */
++  const char *test_mnemonic = getenv("CYPHEROCK_SIM_TEST_MNEMONIC");
++  if (NULL != test_mnemonic) {
++    uint8_t test_wallet_id[WALLET_ID_SIZE] = {0};
++    calculate_wallet_id(test_wallet_id, test_mnemonic);
++    if (0 == memcmp(test_wallet_id, wallet_id, WALLET_ID_SIZE)) {
++      mnemonic_to_seed(test_mnemonic, "", seed_out, NULL);
++      return true;
++    }
++  }
++#endif
++
+   uint8_t result = false;
+ 
+   clear_wallet_data();
+diff --git a/utilities/cmake/simulator/simulator.cmake b/utilities/cmake/simulator/simulator.cmake
+index aecc843d..a69defc5 100644
+--- a/utilities/cmake/simulator/simulator.cmake
++++ b/utilities/cmake/simulator/simulator.cmake
+@@ -150,6 +150,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
+         simulator/lv_drivers/indev
+         simulator/porting
+         simulator/USB
++        simulator/transport
+ 
+         #unit test framework
+         $<$<BOOL:UNIT_TESTS_SWITCH>:${PROJECT_SOURCE_DIR}/tests/framework/unity>
+@@ -183,5 +184,21 @@ IF(UNIT_TESTS_SWITCH)
+         target_link_libraries(${EXECUTABLE} PRIVATE -lgcov )
+ ENDIF(UNIT_TESTS_SWITCH)
+ target_link_libraries(${EXECUTABLE} PRIVATE ${SDL2_LIBRARIES} -lm)
++# simulator/transport/sim_socket.c uses Winsock on Windows
++if(WIN32)
++    target_link_libraries(${EXECUTABLE} PRIVATE ws2_32)
++endif()
++# Host compilers newer than the device toolchain (arm-none-eabi-gcc 10.3):
++# GCC 14+ turns some long-standing warnings into errors and GCC 15+ defaults
++# to C23. Build the simulator with the device's C dialect and keep those
++# checks as warnings, so existing firmware code compiles unchanged.
++if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14)
++    target_compile_options(${EXECUTABLE} PRIVATE
++        -std=gnu17
++        -Wno-error=incompatible-pointer-types
++        -Wno-error=return-mismatch
++        -Wno-error=implicit-function-declaration
++        -Wno-error=int-conversion)
++endif()
+ target_link_options(${EXECUTABLE} PRIVATE ${inherited})
+ add_custom_target (run COMMAND ${EXECUTABLE_OUTPUT_PATH}/${EXECUTABLE})

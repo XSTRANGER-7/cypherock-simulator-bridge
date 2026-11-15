@@ -12,8 +12,12 @@ import { SimulatorConnectionError, SimulatorErrorCode } from './errors';
 import {
   DeviceState,
   type IDeviceConnection,
+  type PoolData,
   type SimulatorConnectionOptions,
 } from './types';
+
+type ResolvedOptions = Required<Omit<SimulatorConnectionOptions, 'logger' | 'onFrame'>> &
+  Pick<SimulatorConnectionOptions, 'logger' | 'onFrame'>;
 
 /**
  * Drop-in replacement for @cypherock/sdk-hw-hid's DeviceConnection that talks
@@ -22,9 +26,14 @@ import {
  *   const connection = await DeviceConnection.create();          // simulator
  *   const manager = await ManagerApp.create(connection);         // unchanged
  *
- * Everything above this class (sdk-core packet encoding, protobuf messages,
- * app packages) stays exactly the same. That is the whole point: the real
- * protocol is exercised end to end, only the wire changes.
+ * Every method mirrors sdk/packages/hw-hid/src/deviceConnection.ts:
+ *  - send(): hw-hid prepends a 0x00 HID report ID and pads to 64. The device's
+ *    USB stack strips the report ID, so the firmware never sees it; we send
+ *    only the 64-byte report.
+ *  - receive(): returns the next frame or undefined at once (no waiting).
+ *  - peek(): { id, data } items, not consumed (sdk-core's legacy handshake
+ *    relies on this shape, core/src/operations/legacy/sendData.ts:88-99).
+ *  - getNewSequenceNumber(): += 1, the hw-hid rule.
  */
 export class DeviceConnection implements IDeviceConnection {
   private sequenceNumber = 0;
@@ -33,12 +42,11 @@ export class DeviceConnection implements IDeviceConnection {
 
   private constructor(
     private readonly channel: SocketChannel,
-    private readonly options: Required<Omit<SimulatorConnectionOptions, 'logger'>> &
-      Pick<SimulatorConnectionOptions, 'logger'>,
+    private readonly options: ResolvedOptions,
   ) {}
 
   static async create(options: SimulatorConnectionOptions = {}): Promise<DeviceConnection> {
-    const resolved = {
+    const resolved: ResolvedOptions = {
       host: options.host ?? process.env.CYPHEROCK_SIM_HOST ?? DEFAULT_HOST,
       port: options.port ?? Number(process.env.CYPHEROCK_SIM_PORT ?? DEFAULT_PORT),
       connectTimeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
@@ -46,6 +54,7 @@ export class DeviceConnection implements IDeviceConnection {
       retryDelayMs: options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
       frameSize: options.frameSize ?? FRAME_SIZE,
       logger: options.logger,
+      onFrame: options.onFrame,
     };
 
     const channel = await SocketChannel.open(resolved);
@@ -55,9 +64,9 @@ export class DeviceConnection implements IDeviceConnection {
   }
 
   /** Same convenience the HID package offers: is anything listening? */
-  static async list(options: SimulatorConnectionOptions = {}): Promise<
-    Array<{ host: string; port: number }>
-  > {
+  static async list(
+    options: SimulatorConnectionOptions = {},
+  ): Promise<Array<{ host: string; port: number }>> {
     try {
       const probe = await DeviceConnection.create({ ...options, retries: 1 });
       const found = { host: probe.options.host, port: probe.options.port };
@@ -76,52 +85,47 @@ export class DeviceConnection implements IDeviceConnection {
     return !this.destroyed && this.channel.isOpen;
   }
 
-  async beforeOperation(): Promise<void> {
-    this.assertOpen();
-  }
+  /**
+   * hw-hid starts its read loop here and stops it in afterOperation(). The
+   * socket is always read; frames that arrive between operations wait in the
+   * pool, like unread HID reports wait in the OS buffer.
+   */
+  async beforeOperation(): Promise<void> {}
 
-  async afterOperation(): Promise<void> {
-    // Nothing to release: the socket stays open between operations,
-    // like a USB device that stays plugged in.
-  }
+  async afterOperation(): Promise<void> {}
 
   async getSequenceNumber(): Promise<number> {
     return this.sequenceNumber;
   }
 
   async getNewSequenceNumber(): Promise<number> {
-    // Wraps like a 16-bit counter. Check sdk-hw-hid for the exact rule
-    // and copy it if it differs.
-    this.sequenceNumber = (this.sequenceNumber + 1) % 0xffff;
+    this.sequenceNumber += 1;
     return this.sequenceNumber;
   }
 
   async getDeviceState(): Promise<DeviceState> {
-    // The simulator always runs the main firmware (no bootloader mode).
+    // The simulator is built with FIRMWARE_TYPE=Main (no bootloader mode).
     return DeviceState.MAIN;
   }
 
+  /** Extra, like hw-hid's isInitialized(); not part of IDeviceConnection. */
   async isInitialized(): Promise<boolean> {
     return this.initialized;
   }
 
   async send(data: Uint8Array): Promise<void> {
-    this.assertOpen();
+    if (this.destroyed) throw new SimulatorConnectionError(SimulatorErrorCode.NOT_CONNECTED);
+    if (!this.channel.isOpen) {
+      throw new SimulatorConnectionError(SimulatorErrorCode.CONNECTION_CLOSED);
+    }
     await this.channel.write(data);
   }
 
-  /**
-   * Returns the next frame from the simulator, or undefined if nothing
-   * arrives in a short window. sdk-core polls this in a loop, so it must
-   * not block for long.
-   */
   async receive(): Promise<Uint8Array | undefined> {
-    this.assertOpen();
-    return this.channel.read(10);
+    return this.channel.tryRead();
   }
 
-  async peek(): Promise<Uint8Array[]> {
-    this.assertOpen();
+  async peek(): Promise<PoolData[]> {
     return this.channel.peekAll();
   }
 
@@ -129,13 +133,5 @@ export class DeviceConnection implements IDeviceConnection {
     if (this.destroyed) return;
     this.destroyed = true;
     await this.channel.close();
-  }
-
-  private assertOpen() {
-    if (this.destroyed || !this.channel.isOpen) {
-      throw new SimulatorConnectionError(
-        this.destroyed ? SimulatorErrorCode.NOT_CONNECTED : SimulatorErrorCode.CONNECTION_CLOSED,
-      );
-    }
   }
 }

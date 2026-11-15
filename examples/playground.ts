@@ -33,9 +33,10 @@ async function main() {
       run: async () => {
         const text = await rl.question('hex> ');
         await connection.send(Uint8Array.from(Buffer.from(text.replace(/\s/g, ''), 'hex')));
-        for (let i = 0; i < 100; i += 1) {
+        for (let i = 0; i < 500; i += 1) {
           const frame = await connection.receive();
           if (frame) return hex(frame);
+          await new Promise((r) => setTimeout(r, 2)); // receive() never waits
         }
         return 'no reply';
       },

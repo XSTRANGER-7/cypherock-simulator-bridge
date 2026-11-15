@@ -14,7 +14,10 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { DeviceConnection, FRAME_SIZE } from '../packages/hw-simulator/src';
 
-const binary = path.resolve(__dirname, '../firmware-patch/build/echo_server');
+const binary = path.resolve(
+  __dirname,
+  `../firmware-patch/build/echo_server${process.platform === 'win32' ? '.exe' : ''}`,
+);
 let server: ChildProcess | undefined;
 let port = 0;
 
@@ -42,6 +45,7 @@ async function receiveWithin(connection: DeviceConnection, ms = 2000) {
   while (Date.now() < deadline) {
     const frame = await connection.receive();
     if (frame) return frame;
+    await new Promise((r) => setTimeout(r, 2)); // like sdk-core's RECHECK_TIME
   }
   return undefined;
 }

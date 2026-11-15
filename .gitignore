@@ -5,3 +5,4 @@ firmware-patch/build/
 .sim.pid
 *.tsbuildinfo
 .DS_Store
+.sim-state/

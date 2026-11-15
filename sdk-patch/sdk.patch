@@ -1,0 +1,1077 @@
+diff --git a/.changeset/simulator-transport.md b/.changeset/simulator-transport.md
+new file mode 100644
+index 0000000..393441e
+--- /dev/null
++++ b/.changeset/simulator-transport.md
+@@ -0,0 +1,6 @@
++---
++'@cypherock/sdk-hw-simulator': minor
++'@cypherock/sdk-interfaces': patch
++---
++
++Add hw-simulator transport for the X1 firmware simulator (TCP, 127.0.0.1:52640) and a SIMULATOR connection type
+diff --git a/packages/hw-simulator/.eslintignore b/packages/hw-simulator/.eslintignore
+new file mode 100644
+index 0000000..b484eee
+--- /dev/null
++++ b/packages/hw-simulator/.eslintignore
+@@ -0,0 +1,5 @@
++dist
++coverage
++# JS config files are not part of the TypeScript project used for linting
++.eslintrc.js
++jest.config.js
+diff --git a/packages/hw-simulator/.eslintrc.js b/packages/hw-simulator/.eslintrc.js
+new file mode 100644
+index 0000000..8754a05
+--- /dev/null
++++ b/packages/hw-simulator/.eslintrc.js
+@@ -0,0 +1,8 @@
++module.exports = {
++  root: true,
++  extends: ['@cypherock/eslint-config'],
++  parserOptions: {
++    tsconfigRootDir: __dirname,
++    project: ['./tsconfig.eslint.json'],
++  },
++};
+diff --git a/packages/hw-simulator/.gitignore b/packages/hw-simulator/.gitignore
+new file mode 100644
+index 0000000..eea99aa
+--- /dev/null
++++ b/packages/hw-simulator/.gitignore
+@@ -0,0 +1,2 @@
++.turbo
++dist
+diff --git a/packages/hw-simulator/.prettierrc b/packages/hw-simulator/.prettierrc
+new file mode 100644
+index 0000000..3add8a1
+--- /dev/null
++++ b/packages/hw-simulator/.prettierrc
+@@ -0,0 +1 @@
++"@cypherock/prettier-config"
+diff --git a/packages/hw-simulator/README.md b/packages/hw-simulator/README.md
+new file mode 100644
+index 0000000..9ef6b42
+--- /dev/null
++++ b/packages/hw-simulator/README.md
+@@ -0,0 +1,36 @@
++# @cypherock/sdk-hw-simulator
++
++Connects the Cypherock SDK to the **X1 firmware simulator** over a localhost TCP socket, so SDK apps run against real firmware code without an X1 device.
++
++It is a drop-in replacement for `@cypherock/sdk-hw-hid`'s `DeviceConnection`:
++
++```ts
++import { DeviceConnection } from '@cypherock/sdk-hw-simulator';
++import { ManagerApp } from '@cypherock/sdk-app-manager';
++
++const connection = await DeviceConnection.create(); // 127.0.0.1:52640
++const manager = await ManagerApp.create(connection);
++console.log(await manager.getDeviceInfo());
++```
++
++## Requirements
++
++A simulator built from `x1_wallet_firmware` with the TCP bridge (`simulator/transport`), listening on `127.0.0.1:52640`. Build and run instructions: <https://github.com/XSTRANGER-7/cypherock-simulator-bridge>.
++
++## Options
++
++| Option             | Default     | Env var              |
++| ------------------ | ----------- | -------------------- |
++| `host`             | `127.0.0.1` | `CYPHEROCK_SIM_HOST` |
++| `port`             | `52640`     | `CYPHEROCK_SIM_PORT` |
++| `connectTimeoutMs` | `3000`      |                      |
++| `retries`          | `10`        |                      |
++| `retryDelayMs`     | `300`       |                      |
++
++## Wire format
++
++Fixed 64-byte frames, one per USB report. `send()` writes each packet zero-padded to 64 bytes; the HID report ID that `hw-hid` adds for node-hid is not sent, because the firmware never sees it on real USB. `receive()` returns the next frame or `undefined` immediately; `peek()` returns `{ id, data }` items without consuming them.
++
++## Safety
++
++For development and testing only. The simulator binds to localhost; never use it with real funds or a real seed phrase.
+diff --git a/packages/hw-simulator/jest.config.js b/packages/hw-simulator/jest.config.js
+new file mode 100644
+index 0000000..349f4bf
+--- /dev/null
++++ b/packages/hw-simulator/jest.config.js
+@@ -0,0 +1,19 @@
++module.exports = {
++  collectCoverage: true,
++  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.test.ts'],
++  testTimeout: 15000,
++  preset: 'ts-jest',
++  testEnvironment: 'node',
++  rootDir: '.',
++  testPathIgnorePatterns: [
++    '/node_modules/',
++    '/__fixtures__/',
++    '/__helpers__/',
++    '/dist/',
++  ],
++  testMatch: [
++    '**/tests/**/*.[jt]s?(x)',
++    '**/__tests__/**/*.[jt]s?(x)',
++    '**/?(*.)+(spec|test).[jt]s?(x)',
++  ],
++};
+diff --git a/packages/hw-simulator/package.json b/packages/hw-simulator/package.json
+new file mode 100644
+index 0000000..d990626
+--- /dev/null
++++ b/packages/hw-simulator/package.json
+@@ -0,0 +1,48 @@
++{
++  "name": "@cypherock/sdk-hw-simulator",
++  "version": "0.0.1",
++  "description": "Connects the Cypherock SDK to the X1 firmware simulator over a localhost TCP socket, so SDK apps run against real firmware code without hardware.",
++  "main": "dist/index.js",
++  "types": "dist/index.d.ts",
++  "license": "MIT",
++  "scripts": {
++    "lint": "eslint --ext .ts,tsx,js,jsx,js src/ --fix",
++    "lint:check": "eslint --ext .ts,tsx,js,jsx,js src/",
++    "pretty": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
++    "pretty:check": "prettier --check 'src/**/*.ts' 'tests/**/*.ts'",
++    "build": "rimraf dist && tsc -p tsconfig.json",
++    "test": "cross-env LOG_LEVEL=error jest",
++    "pre-commit": "lint-staged"
++  },
++  "devDependencies": {
++    "@cypherock/eslint-config": "workspace:*",
++    "@cypherock/prettier-config": "workspace:^0.0.8",
++    "@cypherock/sdk-core": "workspace:^",
++    "@cypherock/tsconfig": "workspace:*",
++    "@jest/globals": "^29.4.1",
++    "@types/jest": "^29.4.0",
++    "@types/node": "18.11.18",
++    "@types/uuid": "^9.0.0",
++    "cross-env": "^7.0.3",
++    "eslint": "^7.32.0",
++    "jest": "^29.4.1",
++    "lint-staged": "^13.2.0",
++    "rimraf": "^4.1.2",
++    "ts-jest": "^29.0.5",
++    "typescript": "^4.5.2"
++  },
++  "dependencies": {
++    "@cypherock/sdk-interfaces": "workspace:^0.0.16",
++    "@cypherock/sdk-utils": "workspace:^0.0.21",
++    "uuid": "^9.0.0"
++  },
++  "lint-staged": {
++    "*.{js,jsx,ts,tsx}": [
++      "eslint --ext js,jsx,ts,tsx --quiet --fix --",
++      "prettier --write"
++    ],
++    "*.{md,mdx,mjs,yml,yaml,css,json}": [
++      "prettier --write"
++    ]
++  }
++}
+diff --git a/packages/hw-simulator/src/constants.ts b/packages/hw-simulator/src/constants.ts
+new file mode 100644
+index 0000000..5e28a9e
+--- /dev/null
++++ b/packages/hw-simulator/src/constants.ts
+@@ -0,0 +1,23 @@
++/** USB report size: COMM_PKT_MAX_LEN in x1_wallet_firmware usb_api_priv.h:30. */
++export const FRAME_SIZE = 64;
++
++/** The simulator bridge only ever binds to localhost. */
++export const DEFAULT_HOST = '127.0.0.1';
++export const DEFAULT_PORT = 52640;
++
++export const DEFAULT_CONNECT_TIMEOUT_MS = 3000;
++export const DEFAULT_CONNECT_RETRIES = 10;
++export const DEFAULT_RETRY_DELAY_MS = 300;
++
++export interface SimulatorConnectionOptions {
++  /** Default 127.0.0.1, or $CYPHEROCK_SIM_HOST */
++  host?: string;
++  /** Default 52640, or $CYPHEROCK_SIM_PORT */
++  port?: number;
++  /** Per-attempt connect timeout in ms */
++  connectTimeoutMs?: number;
++  /** Connection attempts before failing (the simulator may still be booting) */
++  retries?: number;
++  /** Delay between attempts in ms */
++  retryDelayMs?: number;
++}
+diff --git a/packages/hw-simulator/src/deviceConnection.ts b/packages/hw-simulator/src/deviceConnection.ts
+new file mode 100644
+index 0000000..7cb57ee
+--- /dev/null
++++ b/packages/hw-simulator/src/deviceConnection.ts
+@@ -0,0 +1,157 @@
++/* eslint-disable class-methods-use-this */
++import {
++  ConnectionTypeMap,
++  DeviceConnectionError,
++  DeviceConnectionErrorType,
++  DeviceState,
++  IDevice,
++  IDeviceConnection,
++} from '@cypherock/sdk-interfaces';
++
++import {
++  DEFAULT_CONNECT_RETRIES,
++  DEFAULT_CONNECT_TIMEOUT_MS,
++  DEFAULT_HOST,
++  DEFAULT_PORT,
++  DEFAULT_RETRY_DELAY_MS,
++  FRAME_SIZE,
++  SimulatorConnectionOptions,
++} from './constants';
++import { SocketChannel } from './helpers';
++import { logger } from './logger';
++
++/**
++ * Drop-in replacement for @cypherock/sdk-hw-hid's DeviceConnection that talks
++ * to the X1 firmware simulator over TCP (127.0.0.1:52640) instead of USB.
++ *
++ *   const connection = await DeviceConnection.create();
++ *   const manager = await ManagerApp.create(connection);   // unchanged
++ *
++ * Methods mirror packages/hw-hid/src/deviceConnection.ts; differences are
++ * commented.
++ */
++export default class DeviceConnection implements IDeviceConnection {
++  protected sequenceNumber = 0;
++
++  private readonly channel: SocketChannel;
++
++  private readonly device: IDevice;
++
++  private constructor(channel: SocketChannel, device: IDevice) {
++    this.channel = channel;
++    this.device = device;
++  }
++
++  public static async create(options: SimulatorConnectionOptions = {}) {
++    const host = options.host ?? process.env.CYPHEROCK_SIM_HOST ?? DEFAULT_HOST;
++    const port =
++      options.port ?? Number(process.env.CYPHEROCK_SIM_PORT ?? DEFAULT_PORT);
++
++    try {
++      const channel = await SocketChannel.open({
++        host,
++        port,
++        connectTimeoutMs:
++          options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
++        retries: options.retries ?? DEFAULT_CONNECT_RETRIES,
++        retryDelayMs: options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
++        frameSize: FRAME_SIZE,
++      });
++      return new DeviceConnection(
++        channel,
++        DeviceConnection.describe(host, port),
++      );
++    } catch (error) {
++      logger.warn(`No X1 simulator listening at ${host}:${port}`);
++      throw new DeviceConnectionError(DeviceConnectionErrorType.NOT_CONNECTED);
++    }
++  }
++
++  /** Same idea as hw-hid's list(): one entry if a simulator answers. */
++  public static async list(options: SimulatorConnectionOptions = {}) {
++    try {
++      const probe = await DeviceConnection.create({ ...options, retries: 1 });
++      const { device } = probe;
++      await probe.destroy();
++      return [device];
++    } catch {
++      return [];
++    }
++  }
++
++  private static describe(host: string, port: number): IDevice {
++    return {
++      path: `tcp://${host}:${port}`,
++      // The simulator is built with FIRMWARE_TYPE=Main (no bootloader)
++      deviceState: DeviceState.MAIN,
++      // Same ids hw-hid filters on (helpers/connection.ts)
++      vendorId: 0x3503,
++      productId: 0x0103,
++      serial: 'SIMULATOR',
++      type: ConnectionTypeMap.SIMULATOR,
++    };
++  }
++
++  public async getConnectionType() {
++    return ConnectionTypeMap.SIMULATOR;
++  }
++
++  public async isConnected() {
++    return this.channel.isOpen;
++  }
++
++  /**
++   * hw-hid starts its read loop here and stops it in afterOperation(). The
++   * socket is always read; frames that arrive between operations wait in the
++   * pool, like unread HID reports wait in the OS buffer.
++   */
++  public async beforeOperation() {
++    // Nothing to do, see above
++  }
++
++  public async afterOperation() {
++    // Nothing to do, see beforeOperation
++  }
++
++  public async getSequenceNumber() {
++    return this.sequenceNumber;
++  }
++
++  /** Same rule as hw-hid: increment, no wrap. */
++  public async getNewSequenceNumber() {
++    this.sequenceNumber += 1;
++    return this.sequenceNumber;
++  }
++
++  public async getDeviceState() {
++    return this.device.deviceState;
++  }
++
++  /**
++   * hw-hid writes a 0x00 report ID plus the data padded to 64 bytes. The
++   * device's USB stack strips the report ID before the firmware parser sees
++   * it, so only the 64-byte report goes over TCP.
++   */
++  public async send(data: Uint8Array) {
++    if (!this.channel.isOpen) {
++      throw new DeviceConnectionError(
++        DeviceConnectionErrorType.CONNECTION_CLOSED,
++      );
++    }
++    await this.channel.write(data);
++  }
++
++  /** Next frame from the simulator, or undefined at once. */
++  public async receive() {
++    return this.channel.tryRead();
++  }
++
++  /** Pooled frames as { id, data }, not consumed. */
++  public async peek() {
++    return this.channel.peekAll();
++  }
++
++  public async destroy() {
++    await this.channel.close();
++  }
++}
+diff --git a/packages/hw-simulator/src/helpers/framing.ts b/packages/hw-simulator/src/helpers/framing.ts
+new file mode 100644
+index 0000000..3c8fe75
+--- /dev/null
++++ b/packages/hw-simulator/src/helpers/framing.ts
+@@ -0,0 +1,57 @@
++/**
++ * Fixed-size framing helpers.
++ *
++ * TCP is a byte stream: one write may arrive as two reads, or two writes as
++ * one read. USB HID is not: it delivers whole reports. These helpers restore
++ * report boundaries on top of TCP so both sides can keep USB semantics.
++ */
++
++/** Split data into frames of exactly `frameSize` bytes, zero-padding the last. */
++export function toFrames(data: Uint8Array, frameSize: number): Uint8Array[] {
++  if (frameSize <= 0) throw new RangeError('frameSize must be positive');
++  if (data.length === 0) return [new Uint8Array(frameSize)];
++
++  const frames: Uint8Array[] = [];
++  for (let offset = 0; offset < data.length; offset += frameSize) {
++    const frame = new Uint8Array(frameSize);
++    frame.set(data.subarray(offset, Math.min(offset + frameSize, data.length)));
++    frames.push(frame);
++  }
++  return frames;
++}
++
++/**
++ * Accumulates incoming bytes and emits complete frames.
++ * Partial frames stay buffered until the rest arrives.
++ */
++export class FrameAccumulator {
++  private buffer: Uint8Array = new Uint8Array(0);
++
++  constructor(private readonly frameSize: number) {
++    if (frameSize <= 0) throw new RangeError('frameSize must be positive');
++  }
++
++  push(chunk: Uint8Array): Uint8Array[] {
++    const merged = new Uint8Array(this.buffer.length + chunk.length);
++    merged.set(this.buffer);
++    merged.set(chunk, this.buffer.length);
++
++    const frames: Uint8Array[] = [];
++    let offset = 0;
++    while (merged.length - offset >= this.frameSize) {
++      frames.push(merged.slice(offset, offset + this.frameSize));
++      offset += this.frameSize;
++    }
++    this.buffer = merged.slice(offset);
++    return frames;
++  }
++
++  /** Bytes waiting for the rest of their frame. */
++  get pendingBytes(): number {
++    return this.buffer.length;
++  }
++
++  reset(): void {
++    this.buffer = new Uint8Array(0);
++  }
++}
+diff --git a/packages/hw-simulator/src/helpers/index.ts b/packages/hw-simulator/src/helpers/index.ts
+new file mode 100644
+index 0000000..698c944
+--- /dev/null
++++ b/packages/hw-simulator/src/helpers/index.ts
+@@ -0,0 +1,2 @@
++export * from './framing';
++export * from './socketChannel';
+diff --git a/packages/hw-simulator/src/helpers/socketChannel.ts b/packages/hw-simulator/src/helpers/socketChannel.ts
+new file mode 100644
+index 0000000..649b990
+--- /dev/null
++++ b/packages/hw-simulator/src/helpers/socketChannel.ts
+@@ -0,0 +1,155 @@
++import net from 'net';
++import * as uuid from 'uuid';
++import { PoolData } from '@cypherock/sdk-interfaces';
++
++import { FrameAccumulator, toFrames } from './framing';
++import { logger } from '../logger';
++
++export interface SocketChannelOptions {
++  host: string;
++  port: number;
++  connectTimeoutMs: number;
++  retries: number;
++  retryDelayMs: number;
++  frameSize: number;
++}
++
++const sleep = (ms: number) =>
++  new Promise(resolve => {
++    setTimeout(resolve, ms);
++  });
++
++const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex');
++
++/**
++ * TCP channel to the X1 simulator. Moves 64-byte frames only; knows nothing
++ * about Cypherock packets.
++ *
++ * Received frames go into a pool of `PoolData` items with stable ids, the
++ * same shape and semantics as hw-hid's DataListener.
++ */
++export class SocketChannel {
++  private socket: net.Socket | undefined;
++
++  private readonly accumulator: FrameAccumulator;
++
++  private readonly pool: PoolData[] = [];
++
++  private closed = true;
++
++  private constructor(private readonly options: SocketChannelOptions) {
++    this.accumulator = new FrameAccumulator(options.frameSize);
++  }
++
++  public static async open(options: SocketChannelOptions) {
++    const channel = new SocketChannel(options);
++    let lastError: unknown;
++    for (let attempt = 1; attempt <= options.retries; attempt += 1) {
++      try {
++        // eslint-disable-next-line no-await-in-loop
++        await channel.connectOnce();
++        return channel;
++      } catch (error) {
++        lastError = error;
++        logger.debug(`Simulator connect attempt ${attempt} failed`);
++        if (attempt < options.retries) {
++          // eslint-disable-next-line no-await-in-loop
++          await sleep(options.retryDelayMs);
++        }
++      }
++    }
++    throw lastError;
++  }
++
++  public get isOpen() {
++    return !this.closed && !!this.socket && !this.socket.destroyed;
++  }
++
++  public async write(data: Uint8Array) {
++    const { socket } = this;
++    if (!socket || !this.isOpen) throw new Error('Simulator socket is closed');
++
++    for (const frame of toFrames(data, this.options.frameSize)) {
++      logger.debug(`tx ${hex(frame)}`);
++      // eslint-disable-next-line no-await-in-loop
++      await new Promise<void>((resolve, reject) => {
++        socket.write(frame, err => (err ? reject(err) : resolve()));
++      });
++    }
++  }
++
++  /** Next frame or undefined, never waits (hw-hid: pool.shift()?.data). */
++  public tryRead() {
++    return this.pool.shift()?.data;
++  }
++
++  /** Not consumed; ids stay stable so sdk-core can skip items it has seen. */
++  public peekAll(): PoolData[] {
++    return this.pool.map(({ id, data }) => ({ id, data: data.slice() }));
++  }
++
++  public async close() {
++    const { socket } = this;
++    this.socket = undefined;
++    this.closed = true;
++    this.pool.length = 0;
++    if (!socket || socket.destroyed) return;
++
++    await new Promise<void>(resolve => {
++      socket.once('close', () => resolve());
++      socket.end();
++      setTimeout(() => {
++        socket.destroy();
++        resolve();
++      }, 200);
++    });
++  }
++
++  private connectOnce() {
++    return new Promise<void>((resolve, reject) => {
++      const socket = net.createConnection({
++        host: this.options.host,
++        port: this.options.port,
++      });
++
++      const timer = setTimeout(() => {
++        socket.destroy();
++        reject(new Error('Simulator connect timeout'));
++      }, this.options.connectTimeoutMs);
++
++      socket.once('connect', () => {
++        clearTimeout(timer);
++        socket.setNoDelay(true);
++        this.attach(socket);
++        resolve();
++      });
++
++      socket.once('error', error => {
++        clearTimeout(timer);
++        socket.destroy();
++        reject(error);
++      });
++    });
++  }
++
++  private attach(socket: net.Socket) {
++    this.socket = socket;
++    this.closed = false;
++    this.accumulator.reset();
++
++    socket.on('data', (chunk: Buffer) => {
++      for (const frame of this.accumulator.push(new Uint8Array(chunk))) {
++        logger.debug(`rx ${hex(frame)}`);
++        this.pool.push({ id: uuid.v4(), data: frame });
++      }
++    });
++
++    socket.on('close', () => {
++      this.closed = true;
++    });
++
++    socket.on('error', error => {
++      logger.warn(`Simulator socket error: ${error.message}`);
++    });
++  }
++}
+diff --git a/packages/hw-simulator/src/index.ts b/packages/hw-simulator/src/index.ts
+new file mode 100644
+index 0000000..d185259
+--- /dev/null
++++ b/packages/hw-simulator/src/index.ts
+@@ -0,0 +1,8 @@
++import DeviceConnection from './deviceConnection';
++
++export { default as DeviceConnection } from './deviceConnection';
++export { updateLogger } from './logger';
++export { FRAME_SIZE, DEFAULT_HOST, DEFAULT_PORT } from './constants';
++export type { SimulatorConnectionOptions } from './constants';
++
++export default DeviceConnection;
+diff --git a/packages/hw-simulator/src/logger.ts b/packages/hw-simulator/src/logger.ts
+new file mode 100644
+index 0000000..88b4940
+--- /dev/null
++++ b/packages/hw-simulator/src/logger.ts
+@@ -0,0 +1,20 @@
++import { ILogger, LogCreator } from '@cypherock/sdk-interfaces';
++import {
++  createDefaultConsoleLogger,
++  updateLoggerObject,
++} from '@cypherock/sdk-utils';
++
++export const loggerServiceName = 'sdk-hw-simulator';
++
++export const logger: ILogger = {
++  ...createDefaultConsoleLogger(loggerServiceName),
++};
++
++export const updateLogger = (createLogger: LogCreator) => {
++  updateLoggerObject({
++    currentLogger: logger,
++    newLogger: createLogger(loggerServiceName),
++  });
++};
++
++export default logger;
+diff --git a/packages/hw-simulator/tests/__helpers__/mockDevice.ts b/packages/hw-simulator/tests/__helpers__/mockDevice.ts
+new file mode 100644
+index 0000000..0fec8b9
+--- /dev/null
++++ b/packages/hw-simulator/tests/__helpers__/mockDevice.ts
+@@ -0,0 +1,81 @@
++import net from 'net';
++
++import { FrameAccumulator, toFrames } from '../../src/helpers/framing';
++import { FRAME_SIZE } from '../../src/constants';
++
++/**
++ * A TCP server that behaves like the patched simulator at the byte level:
++ * fixed 64-byte frames on 127.0.0.1. It does not implement the Cypherock
++ * protocol; a handler decides what to answer for each frame.
++ */
++export interface MockControl {
++  disconnect(): void;
++}
++
++/** Returns the reply payloads for a frame; anything else means no reply. */
++export type FrameHandler = (
++  frame: Uint8Array,
++  control: MockControl,
++) => Uint8Array[] | undefined;
++
++export const echoHandler: FrameHandler = frame => [frame];
++
++export class MockDevice {
++  public readonly received: Uint8Array[] = [];
++
++  private readonly server: net.Server;
++
++  private readonly clients = new Set<net.Socket>();
++
++  private handler: FrameHandler = echoHandler;
++
++  private constructor() {
++    this.server = net.createServer(socket => this.onClient(socket));
++  }
++
++  public static async start(): Promise<MockDevice> {
++    const device = new MockDevice();
++    await new Promise<void>((resolve, reject) => {
++      device.server.once('error', reject);
++      device.server.listen(0, '127.0.0.1', () => resolve());
++    });
++    return device;
++  }
++
++  public get port(): number {
++    const address = this.server.address();
++    if (address && typeof address === 'object') return address.port;
++    throw new Error('MockDevice is not listening');
++  }
++
++  public setHandler(handler: FrameHandler) {
++    this.handler = handler;
++  }
++
++  public async stop() {
++    for (const client of this.clients) client.destroy();
++    await new Promise<void>(resolve => {
++      this.server.close(() => resolve());
++    });
++  }
++
++  private onClient(socket: net.Socket) {
++    this.clients.add(socket);
++    socket.setNoDelay(true);
++    const accumulator = new FrameAccumulator(FRAME_SIZE);
++    const control: MockControl = { disconnect: () => socket.destroy() };
++
++    socket.on('data', (chunk: Buffer) => {
++      for (const frame of accumulator.push(new Uint8Array(chunk))) {
++        this.received.push(frame);
++        const result = this.handler(frame, control);
++        const replies = Array.isArray(result) ? result : [];
++        for (const reply of replies) {
++          for (const out of toFrames(reply, FRAME_SIZE)) socket.write(out);
++        }
++      }
++    });
++    socket.on('close', () => this.clients.delete(socket));
++    socket.on('error', () => undefined);
++  }
++}
+diff --git a/packages/hw-simulator/tests/deviceConnection.test.ts b/packages/hw-simulator/tests/deviceConnection.test.ts
+new file mode 100644
+index 0000000..fe53afc
+--- /dev/null
++++ b/packages/hw-simulator/tests/deviceConnection.test.ts
+@@ -0,0 +1,173 @@
++import { afterEach, beforeEach, describe, expect, test } from '@jest/globals';
++import {
++  DeviceConnectionError,
++  DeviceConnectionErrorType,
++  DeviceState,
++} from '@cypherock/sdk-interfaces';
++import { SDK } from '@cypherock/sdk-core';
++
++import { DeviceConnection, FRAME_SIZE } from '../src';
++import { MockDevice } from './__helpers__/mockDevice';
++
++const sleep = (ms: number) =>
++  new Promise(resolve => {
++    setTimeout(resolve, ms);
++  });
++
++/** Polls like sdk-core's waitForPacket (RECHECK_TIME = 2 ms). */
++const receiveWithin = async (connection: DeviceConnection, ms = 1000) => {
++  const deadline = Date.now() + ms;
++  while (Date.now() < deadline) {
++    // eslint-disable-next-line no-await-in-loop
++    const frame = await connection.receive();
++    if (frame) return frame;
++    // eslint-disable-next-line no-await-in-loop
++    await sleep(2);
++  }
++  return undefined;
++};
++
++/**
++ * Bytes the X1 firmware compares an incoming report against before running
++ * its v3 parser: x1_wallet_firmware usb_rx_parser.c:112-121 (SDK_REQ_PACKET).
++ */
++const FIRMWARE_SDK_REQ = [
++  0xaa, 0x58, 0x07, 0x00, 0x01, 0x00, 0x01, 0x00, 0x45, 0x85,
++];
++
++/** Firmware's 28-byte reply: ACK + SDK version 3.0.0 (usb_rx_parser.c:122-153). */
++const FIRMWARE_SDK_RESP = Uint8Array.from([
++  0xaa, 0x01, 0x0a, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x12, 0x30,
++  0xaa, 0x58, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
++  0xbd, 0x90,
++]);
++
++describe('hw-simulator DeviceConnection', () => {
++  let device: MockDevice;
++
++  const connect = () =>
++    DeviceConnection.create({
++      port: device.port,
++      retries: 3,
++      retryDelayMs: 50,
++    });
++
++  beforeEach(async () => {
++    device = await MockDevice.start();
++  });
++
++  afterEach(async () => {
++    await device.stop();
++  });
++
++  test('reports simulator metadata', async () => {
++    const connection = await connect();
++    expect(await connection.isConnected()).toBe(true);
++    expect(await connection.getConnectionType()).toBe('simulator');
++    expect(await connection.getDeviceState()).toBe(DeviceState.MAIN);
++    await connection.destroy();
++    expect(await connection.isConnected()).toBe(false);
++  });
++
++  test('send pads to one 64-byte frame without a report ID', async () => {
++    const connection = await connect();
++    await connection.send(Uint8Array.from([0x55, 0x55, 1, 2, 3]));
++    const frame = await receiveWithin(connection);
++    expect(frame).toBeDefined();
++    expect(frame?.length).toBe(FRAME_SIZE);
++    expect(Array.from(device.received[0].subarray(0, 5))).toEqual([
++      0x55, 0x55, 1, 2, 3,
++    ]);
++    expect(device.received[0].subarray(5).every(b => b === 0)).toBe(true);
++    await connection.destroy();
++  });
++
++  test('receive returns undefined at once on an empty pool', async () => {
++    const connection = await connect();
++    const start = process.hrtime.bigint();
++    expect(await connection.receive()).toBeUndefined();
++    expect(Number(process.hrtime.bigint() - start) / 1e6).toBeLessThan(5);
++    await connection.destroy();
++  });
++
++  test('peek returns { id, data } items, stable ids, nothing consumed', async () => {
++    const connection = await connect();
++    await connection.send(Uint8Array.from([7]));
++    await sleep(100);
++    const first = await connection.peek();
++    const second = await connection.peek();
++    expect(first).toHaveLength(1);
++    expect(typeof first[0].id).toBe('string');
++    expect(first[0].data).toBeInstanceOf(Uint8Array);
++    expect(first[0].id).toBe(second[0].id);
++    expect((await connection.receive())?.[0]).toBe(7);
++    expect(await connection.peek()).toHaveLength(0);
++    await connection.destroy();
++  });
++
++  test('sequence numbers follow the hw-hid rule (+1)', async () => {
++    const connection = await connect();
++    expect(await connection.getNewSequenceNumber()).toBe(1);
++    expect(await connection.getNewSequenceNumber()).toBe(2);
++    expect(await connection.getSequenceNumber()).toBe(2);
++    await connection.destroy();
++  });
++
++  test('send after the simulator disconnects throws CONNECTION_CLOSED', async () => {
++    device.setHandler((_frame, control) => {
++      control.disconnect();
++      return undefined;
++    });
++    const connection = await connect();
++    await connection.send(Uint8Array.from([1]));
++    await sleep(150);
++    expect(await connection.isConnected()).toBe(false);
++    await expect(connection.send(Uint8Array.from([1]))).rejects.toMatchObject({
++      code: DeviceConnectionErrorType.CONNECTION_CLOSED,
++    });
++    await connection.destroy();
++  });
++
++  test('create with nothing listening throws NOT_CONNECTED', async () => {
++    const { port } = device;
++    await device.stop();
++    const error = await DeviceConnection.create({
++      port,
++      retries: 2,
++      retryDelayMs: 10,
++    }).catch(e => e);
++    expect(error).toBeInstanceOf(DeviceConnectionError);
++    expect(error.code).toBe(DeviceConnectionErrorType.NOT_CONNECTED);
++    device = await MockDevice.start();
++  });
++
++  test('list() describes a running simulator and is empty without one', async () => {
++    const found = await DeviceConnection.list({ port: device.port });
++    expect(found).toHaveLength(1);
++    expect(found[0].path).toBe(`tcp://127.0.0.1:${device.port}`);
++    expect(found[0].type).toBe('simulator');
++    const { port } = device;
++    await device.stop();
++    expect(await DeviceConnection.list({ port, retryDelayMs: 10 })).toEqual([]);
++    device = await MockDevice.start();
++  });
++
++  test('real sdk-core handshake: SDK.create() negotiates packet version v3', async () => {
++    let requestMatchedFirmware = false;
++    device.setHandler(frame => {
++      if (frame[0] !== 0xaa) return [];
++      requestMatchedFirmware =
++        JSON.stringify(Array.from(frame.subarray(0, 10))) ===
++        JSON.stringify(FIRMWARE_SDK_REQ);
++      return [FIRMWARE_SDK_RESP];
++    });
++
++    const connection = await connect();
++    const sdk = await SDK.create(connection, 1);
++
++    expect(requestMatchedFirmware).toBe(true);
++    expect(sdk.getVersion()).toBe('3.0.0');
++    expect(sdk.getPacketVersion()).toBe('v3');
++    await connection.destroy();
++  });
++});
+diff --git a/packages/hw-simulator/tests/framing.test.ts b/packages/hw-simulator/tests/framing.test.ts
+new file mode 100644
+index 0000000..26c7c35
+--- /dev/null
++++ b/packages/hw-simulator/tests/framing.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, test } from '@jest/globals';
++
++import { FrameAccumulator, toFrames } from '../src/helpers/framing';
++
++describe('framing', () => {
++  test('toFrames pads a short payload to one full frame', () => {
++    const frames = toFrames(Uint8Array.from([1, 2, 3]), 8);
++    expect(frames).toHaveLength(1);
++    expect(Array.from(frames[0])).toEqual([1, 2, 3, 0, 0, 0, 0, 0]);
++  });
++
++  test('toFrames splits a long payload and pads the last frame', () => {
++    const data = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
++    const frames = toFrames(data, 8);
++    expect(frames).toHaveLength(3);
++    expect(Array.from(frames[2])).toEqual([17, 18, 19, 20, 0, 0, 0, 0]);
++  });
++
++  test('toFrames rejects a non-positive frame size', () => {
++    expect(() => toFrames(Uint8Array.from([1]), 0)).toThrow(RangeError);
++  });
++
++  test('FrameAccumulator rebuilds a frame split across TCP chunks', () => {
++    const acc = new FrameAccumulator(4);
++    expect(acc.push(Uint8Array.from([1, 2]))).toHaveLength(0);
++    expect(acc.pendingBytes).toBe(2);
++    const frames = acc.push(Uint8Array.from([3, 4, 5]));
++    expect(frames.map(f => Array.from(f))).toEqual([[1, 2, 3, 4]]);
++    expect(acc.pendingBytes).toBe(1);
++  });
++
++  test('FrameAccumulator emits several frames from one chunk', () => {
++    const acc = new FrameAccumulator(2);
++    const frames = acc.push(Uint8Array.from([1, 2, 3, 4]));
++    expect(frames.map(f => Array.from(f))).toEqual([
++      [1, 2],
++      [3, 4],
++    ]);
++  });
++});
+diff --git a/packages/hw-simulator/tsconfig.eslint.json b/packages/hw-simulator/tsconfig.eslint.json
+new file mode 100644
+index 0000000..c59ee37
+--- /dev/null
++++ b/packages/hw-simulator/tsconfig.eslint.json
+@@ -0,0 +1,8 @@
++{
++  "compilerOptions": {
++    "outDir": "dist"
++  },
++  "extends": "./tsconfig.json",
++  "include": ["./src/**/*.ts", "./tests/**/*.ts"],
++  "exclude": ["node_modules", "coverage"]
++}
+diff --git a/packages/hw-simulator/tsconfig.json b/packages/hw-simulator/tsconfig.json
+new file mode 100644
+index 0000000..634a72a
+--- /dev/null
++++ b/packages/hw-simulator/tsconfig.json
+@@ -0,0 +1,8 @@
++{
++  "compilerOptions": {
++    "outDir": "dist",
++  },
++  "extends": "@cypherock/tsconfig/base.json",
++  "include": ["./src/**/*.ts"],
++  "exclude": ["node_modules"],
++}
+diff --git a/packages/interfaces/src/connection.ts b/packages/interfaces/src/connection.ts
+index d456fac..e51f7de 100644
+--- a/packages/interfaces/src/connection.ts
++++ b/packages/interfaces/src/connection.ts
+@@ -2,6 +2,7 @@ export const ConnectionTypeMap = {
+   SERIAL_PORT: 'serial',
+   HID: 'hid',
+   WEBUSB: 'webusb',
++  SIMULATOR: 'simulator',
+ };
+ 
+ export enum DeviceState {
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 0666fd8..5549240 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -1465,6 +1465,64 @@ importers:
+         specifier: ^4.5.2
+         version: 4.9.5
+ 
++  packages/hw-simulator:
++    dependencies:
++      '@cypherock/sdk-interfaces':
++        specifier: workspace:^0.0.16
++        version: link:../interfaces
++      '@cypherock/sdk-utils':
++        specifier: workspace:^0.0.21
++        version: link:../util
++      uuid:
++        specifier: ^9.0.0
++        version: 9.0.0
++    devDependencies:
++      '@cypherock/eslint-config':
++        specifier: workspace:*
++        version: link:../util-eslint-config
++      '@cypherock/prettier-config':
++        specifier: workspace:^0.0.8
++        version: link:../util-prettier-config
++      '@cypherock/sdk-core':
++        specifier: workspace:^
++        version: link:../core
++      '@cypherock/tsconfig':
++        specifier: workspace:*
++        version: link:../util-tsconfig
++      '@jest/globals':
++        specifier: ^29.4.1
++        version: 29.4.1
++      '@types/jest':
++        specifier: ^29.4.0
++        version: 29.4.0
++      '@types/node':
++        specifier: 18.11.18
++        version: 18.11.18
++      '@types/uuid':
++        specifier: ^9.0.0
++        version: 9.0.0
++      cross-env:
++        specifier: ^7.0.3
++        version: 7.0.3
++      eslint:
++        specifier: ^7.32.0
++        version: 7.32.0
++      jest:
++        specifier: ^29.4.1
++        version: 29.4.1(@types/node@18.11.18)(ts-node@10.9.2)
++      lint-staged:
++        specifier: ^13.2.0
++        version: 13.2.0
++      rimraf:
++        specifier: ^4.1.2
++        version: 4.1.2
++      ts-jest:
++        specifier: ^29.0.5
++        version: 29.0.5(@babel/core@7.26.0)(jest@29.4.1)(typescript@4.9.5)
++      typescript:
++        specifier: ^4.5.2
++        version: 4.9.5
++
+   packages/hw-webusb:
+     dependencies:
+       '@cypherock/sdk-interfaces':
+@@ -11390,15 +11448,17 @@ packages:
+ 
+   /uuid@3.4.0:
+     resolution: {integrity: sha512-HjSDRw6gZE5JMggctHBcjVak08+KEVhSIiDzFnT9S9aegmp85S/bReBVTb4QTFaRNptJ9kuYaNhnbNEOkbKb/A==}
+-    deprecated: Please upgrade  to version 7 or higher.  Older versions may use Math.random() in certain circumstances, which is known to be problematic.  See https://v8.dev/blog/math-random for details.
++    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+     hasBin: true
+ 
+   /uuid@8.3.2:
+     resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
++    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+     hasBin: true
+ 
+   /uuid@9.0.0:
+     resolution: {integrity: sha512-MXcSTerfPa4uqyzStbRoTgt5XIe3x5+42+q1sDuy3R5MDk66URdLMOZe5aPX/SQd+kuYAh0FdP/pO28IkQyTeg==}
++    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+     hasBin: true
+     dev: false
+ 

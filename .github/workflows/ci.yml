@@ -4,48 +4,100 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+env:
+  # Upstream commits this bridge was built and tested against.
+  FIRMWARE_REF: 5b11739d
+  SDK_REF: 4e44158
 
 jobs:
   bridge:
     name: Bridge (no firmware needed)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+      - run: npm ci || npm install
       - name: Typecheck
         run: npm run typecheck
-      - name: C bridge unit tests
-        run: make -C firmware-patch test
-      - name: Transport unit tests
+      - name: C bridge unit tests (layer 1)
+        run: make -C firmware-patch all test
+      - name: Transport unit tests (layer 2)
         run: npm test
-      - name: Transport <-> C bridge
+      - name: Transport <-> C bridge (layer 3)
         run: npx tsx --test integration-tests/c-bridge.test.ts
 
   simulator:
-    name: SDK <-> firmware simulator
-    # Enable once both forks are wired (Milestone 1). Set repo variable ENABLE_SIM=1.
-    if: vars.ENABLE_SIM == '1'
-    runs-on: ubuntu-latest
-    needs: bridge
+    name: Real SDK <-> real firmware simulator (layer 4)
+    runs-on: ubuntu-22.04
+    env:
+      CYPHEROCK_SIM: '1'
+      CYPHEROCK_SIM_TEST_MNEMONIC: test test test test test test test test test test test junk
+      FIRMWARE_DIR: ${{ github.workspace }}/../x1_wallet_firmware
+      SDK_DIR: ${{ github.workspace }}/../sdk
     steps:
       - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libsdl2-dev xvfb unzip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install wheel protobuf grpcio-tools==1.47.0
+      - name: protoc 24.4
+        run: |
+          curl -sSLO https://github.com/protocolbuffers/protobuf/releases/download/v24.4/protoc-24.4-linux-x86_64.zip
+          sudo unzip -o protoc-24.4-linux-x86_64.zip -d /usr/local bin/protoc 'include/*'
+          protoc --version
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - run: npm i -g pnpm && npm install
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libsdl2-dev xvfb
-      - name: Clone forks
-        env:
-          GITHUB_USER: ${{ github.repository_owner }}
-          CYPHEROCK_WORKSPACE: ${{ github.workspace }}/..
-        run: ./scripts/setup.sh
-      - name: Build SDK fork
-        run: cd ../sdk && pnpm i && pnpm build
+      - run: npm i -g pnpm@8.6.0
+
+      - name: Firmware (upstream + firmware-patch)
+        run: |
+          git clone https://github.com/Cypherock/x1_wallet_firmware.git "$FIRMWARE_DIR"
+          cd "$FIRMWARE_DIR"
+          git checkout "$FIRMWARE_REF"
+          git submodule update --init --recursive   # relative URLs resolve to github.com/Cypherock
+          git apply "$GITHUB_WORKSPACE/firmware-patch/x1_wallet_firmware.patch"
       - name: Build simulator
         run: ./scripts/build-simulator.sh
-      - name: SDK tests against simulator
-        run: xvfb-run -a env CYPHEROCK_SIM=1 ./scripts/run-tests.sh
+
+      - name: SDK (upstream + sdk-patch)
+        run: |
+          git clone https://github.com/Cypherock/sdk.git "$SDK_DIR"
+          cd "$SDK_DIR"
+          git checkout "$SDK_REF"
+          git submodule update --init --recursive
+          git apply "$GITHUB_WORKSPACE/sdk-patch/sdk.patch"
+          pnpm install --filter "@cypherock/sdk-hw-simulator..." \
+            --filter "@cypherock/sdk-app-manager..." --filter "@cypherock/sdk-app-evm..."
+          pnpm exec turbo run build --no-daemon --filter="@cypherock/sdk-hw-simulator..." \
+            --filter="@cypherock/sdk-app-manager..." --filter="@cypherock/sdk-app-evm..."
+          pnpm --filter @cypherock/sdk-hw-simulator test
+
+      - run: npm ci || npm install
+      - name: Layers 1-4
+        run: xvfb-run -a ./scripts/run-tests.sh
+      - name: Examples (M1, M2, ETH address)
+        run: |
+          xvfb-run -a bash -c '
+            ./scripts/start-simulator.sh
+            npx tsx examples/raw-status.ts
+            npx tsx examples/get-device-info.ts
+            npx tsx examples/get-wallets.ts
+            npx tsx examples/get-eth-address.ts
+            USE_SDK_TRANSPORT=1 npx tsx examples/get-device-info.ts
+            ./scripts/stop-simulator.sh'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-log
+          path: .sim.log
+          if-no-files-found: ignore

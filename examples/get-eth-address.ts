@@ -1,50 +1,61 @@
 /**
- * Derives the first Ethereum address of the first wallet on the simulator.
- * Real firmware code derives the key; nothing is mocked.
+ * M2 extended: the first Ethereum address of a simulator wallet, derived by
+ * the firmware's own EVM app (apps/evm_family/evm_pub_key.c).
  *
- *   npx tsx examples/get-eth-address.ts
+ *   CYPHEROCK_SIM_TEST_MNEMONIC="test test test test test test test test test test test junk" \
+ *     ./scripts/start-simulator.sh
+ *   npx tsx examples/get-eth-address.ts            # add --verify to show it on screen
  *
- * The EvmApp API below follows docs-sdk.cypherock.com. Verify argument
- * names against packages/app-evm in your SDK fork.
+ * The firmware rebuilds the seed before deriving a key. The simulator's card
+ * emulation cannot do that, so this uses the SIMTEST wallet backed by
+ * CYPHEROCK_SIM_TEST_MNEMONIC (see firmware-patch/simulator/testing).
+ * Parameters: sdk/packages/app-evm/src/operations/runGetPublicKeys/types.ts.
  */
-import { DeviceConnection } from '../packages/hw-simulator/src';
+import { ethers } from 'ethers';
+import { createConnection } from './lib/connection';
 import { hex, loadEvmApp, loadManagerApp } from './lib/sdk';
 
-const HARDENED = 0x80000000;
-const ETH_PATH = [44 + HARDENED, 60 + HARDENED, 0 + HARDENED, 0, 0]; // m/44'/60'/0'/0/0
+const H = 0x80000000;
+export const ETH_PATH = [44 + H, 60 + H, 0 + H, 0, 0]; // m/44'/60'/0'/0/0
 
 async function main() {
   const ManagerApp = loadManagerApp();
-  const evm = loadEvmApp();
-  const connection = await DeviceConnection.create();
+  const { EvmApp, setEthersLib } = loadEvmApp();
+  setEthersLib(ethers); // app-evm formats addresses with ethers v6
 
-  const manager = await ManagerApp.create(connection);
+  const connection = await createConnection();
+  const manager = await ManagerApp.create(connection); // do not destroy before EvmApp
   const { walletList } = await manager.getWallets();
-  if (!walletList?.length) throw new Error('Create a wallet in the simulator first');
+  const wallet = walletList.find((w: any) => w.name === 'SIMTEST') ?? walletList[0];
+  if (!wallet) throw new Error('No wallet on the simulator. Start it with CYPHEROCK_SIM_TEST_MNEMONIC set.');
 
-  // The EVM app needs an ethers instance for address formatting.
-  try {
-    evm.setEthersLib?.(require('ethers'));
-  } catch {
-    console.warn('ethers not installed; run "npm i ethers" if the EVM app asks for it');
-  }
-
-  const app = await evm.EvmApp.create(connection);
-  const result = await app.getPublicKeys({
-    walletId: walletList[0].id,
+  const evm = await EvmApp.create(connection);
+  const doVerifyOnDevice = process.argv.includes('--verify');
+  const { addresses, publicKeys } = await evm.getPublicKeys({
+    walletId: wallet.id,
     derivationPaths: [{ path: ETH_PATH }],
     chainId: 1,
+    doVerifyOnDevice,
+    onEvent: (event: number) => console.log(`  device event ${event}`),
   });
 
-  console.log(`Wallet: ${walletList[0].name} (${hex(walletList[0].id)})`);
-  console.log('Address:', result.addresses?.[0] ?? result);
-  console.log('Confirm the same address is shown on the simulator screen.');
+  console.log(`wallet:  ${wallet.name} (${hex(wallet.id)})`);
+  console.log(`path:    m/44'/60'/0'/0/0`);
+  console.log(`pubkey:  ${publicKeys[0]}`);
+  console.log(`address: ${addresses[0]}`);
 
-  await app.destroy?.();
-  await connection.destroy();
+  const mnemonic = process.env.CYPHEROCK_SIM_TEST_MNEMONIC;
+  if (mnemonic && wallet.name === 'SIMTEST') {
+    const expected = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0").address;
+    const ok = expected.toLowerCase() === addresses[0].toLowerCase();
+    console.log(`ethers:  ${expected}  ${ok ? 'MATCH' : 'MISMATCH'}`);
+    if (!ok) process.exitCode = 2;
+  }
+
+  await evm.destroy();
 }
 
 main().catch((error) => {
-  console.error(error.message);
+  console.error(error);
   process.exit(1);
 });

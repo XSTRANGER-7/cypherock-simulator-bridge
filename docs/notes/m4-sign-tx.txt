@@ -1,0 +1,17 @@
+unsigned: 0x02ef0180843b9aca008506fc23ac0082520894000000000000000000000000000000000000dead87038d7ea4c6800080c0
+Approve the transaction on the simulator screen...
+  device event 0
+  device event 1
+  device event 2
+  device event 3
+  device event 4
+signature: {
+  r: '0xa4a6a9b73374e50e4db1452a425a3d49d503ec58a25a4be8ab8d7b7f21ed03d7',
+  s: '0x1ebb19aac34825479c1c6011f190404630ca97c3bec084950352fdb122277ecb',
+  v: '0x00'
+}
+signed:        0x02f8720180843b9aca008506fc23ac0082520894000000000000000000000000000000000000dead87038d7ea4c6800080c080a0a4a6a9b73374e50e4db1452a425a3d49d503ec58a25a4be8ab8d7b7f21ed03d7a01ebb19aac34825479c1c6011f190404630ca97c3bec084950352fdb122277ecb
+viem recover:  0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+ethers recover:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+mnemonic addr: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+OK: firmware signature verified by viem and ethers

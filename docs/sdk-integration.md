@@ -1,77 +1,51 @@
 # SDK integration
 
-Goal: `@cypherock/sdk-hw-simulator` lives in your SDK fork beside `hw-hid` and `hw-webusb`, with real types.
-
-## 1. Study the HID transport first
+The SDK side is [`sdk-patch/sdk.patch`](../sdk-patch/sdk.patch): a new package `packages/hw-simulator` (`@cypherock/sdk-hw-simulator`) and one line in `packages/interfaces/src/connection.ts` (`SIMULATOR: 'simulator'`). It applies cleanly to upstream `sdk` at `4e44158` and is the content of the fork branch `feat/simulator-transport`.
 
 ```bash
-cd ../sdk
-grep -Rn "interface IDeviceConnection" packages
-cat packages/hw-hid/src/deviceConnection.ts   # or the file that implements it
-cat packages/hw-hid/package.json
+cd sdk
+git apply ../cypherock-simulator-bridge/sdk-patch/sdk.patch
+pnpm install
+pnpm exec turbo run build --no-daemon --filter="@cypherock/sdk-hw-simulator..."
+pnpm --filter @cypherock/sdk-hw-simulator test        # 14 tests
 ```
 
-Note:
-- every method in `IDeviceConnection` and its exact signature
-- how `send` is called: once per packet, or with a whole message
-- how `receive` behaves when nothing is waiting (returns undefined? throws? blocks?)
-- how sequence numbers wrap
-- which error class and codes it throws
-
-## 2. Copy the package
-
-```bash
-cp -r ../cypherock-simulator-bridge/packages/hw-simulator packages/hw-simulator
-```
-
-## 3. Switch to the real types
-
-Replace `packages/hw-simulator/src/types.ts` with:
+## Usage
 
 ```ts
-export type { IDeviceConnection } from '@cypherock/sdk-interfaces';
-export { DeviceState } from '@cypherock/sdk-interfaces';
-export interface SimulatorConnectionOptions {
-  host?: string;
-  port?: number;
-  connectTimeoutMs?: number;
-  retries?: number;
-  retryDelayMs?: number;
-  frameSize?: number;
-  logger?: (message: string) => void;
-}
+import { DeviceConnection } from '@cypherock/sdk-hw-simulator';
+import { ManagerApp } from '@cypherock/sdk-app-manager';
+
+const connection = await DeviceConnection.create();   // 127.0.0.1:52640, retries while the simulator boots
+const manager = await ManagerApp.create(connection);
+const info = await manager.getDeviceInfo();
 ```
 
-Add to `packages/hw-simulator/package.json`:
+`DeviceConnection.list()` returns one `IDevice` (`path: tcp://127.0.0.1:52640`, `type: 'simulator'`) when a simulator answers, like `hw-hid`'s `list()`.
 
-```json
-"dependencies": {
-  "@cypherock/sdk-interfaces": "workspace:*"
-}
-```
+## Contract, matched to `hw-hid`
 
-Run `pnpm i && pnpm build`. Fix each type error in `deviceConnection.ts`; every error is a place where the real contract differs from the local copy.
+| Method | Behaviour | Source it mirrors |
+| --- | --- | --- |
+| `send(data)` | One 64-byte frame per packet, no report ID | `hw-hid/src/deviceConnection.ts:132-139` |
+| `receive()` | Next frame or `undefined` at once | `hw-hid/src/helpers/dataListeners.ts` (`pool.shift()?.data`) |
+| `peek()` | `PoolData[]` (`{id, data}`), not consumed, stable ids | used by `core/src/operations/legacy/sendData.ts:88-99` |
+| `getNewSequenceNumber()` | `+= 1`, no wrap | `hw-hid/src/deviceConnection.ts:82-85` |
+| `beforeOperation()` / `afterOperation()` | No-ops: the socket is always read, frames wait in the pool | `hw-hid` starts/stops its read loop |
+| `getDeviceState()` | `DeviceState.MAIN` (simulator is built with `FIRMWARE_TYPE=Main`) | |
+| Errors | `DeviceConnectionError` `NOT_CONNECTED` (`CON_0100`) on connect failure, `CONNECTION_CLOSED` (`CON_0101`) on send after close | `interfaces/src/errors/connectionError.ts` |
 
-## 4. Match conventions
+## Tests
 
-Copy from `packages/hw-hid`:
-- `tsconfig.json`, lint config, `jest`/test config
-- `package.json` scripts, `main`/`types` fields, version
+`packages/hw-simulator/tests` (Jest, same setup as `packages/core`):
 
-Map `SimulatorConnectionError` codes to the SDK's `DeviceConnectionError` so app packages handle them like USB errors.
+- framing (5 tests)
+- transport against a byte-level mock (8 tests): metadata, padding without report ID, non-blocking `receive`, `peek` shape and stable ids, sequence rule, `CON_0101` after disconnect, `CON_0100` with nothing listening, `list()`
+- **real sdk-core handshake:** the mock answers with the firmware's exact bytes (`usb_rx_parser.c:112-153`); the test asserts sdk-core's request equals the firmware's `SDK_REQ_PACKET` and that `SDK.create()` negotiates version `3.0.0` / packet `v3`
 
-## 5. Tests
+ESLint (`lint:check`) and Prettier pass. On Windows, run Prettier as `pnpm exec prettier --check "src/**/*.ts" "tests/**/*.ts"`; the single quotes in the `pretty:check` script (copied from `hw-hid`) do not work in `cmd`.
 
-Move `tests/` to the SDK's test runner. The mock device can come along as a test helper (`packages/hw-simulator/tests/helpers/mockDevice.ts`).
+## Still to do for the upstream PR
 
-## 6. Prove it
-
-```bash
-pnpm build
-cd ../cypherock-simulator-bridge
-SDK_DIR=../sdk npx tsx examples/get-device-info.ts
-```
-
-## 7. Changeset
-
-If the SDK uses changesets: `pnpm changeset` → minor, "Add hw-simulator transport for the X1 firmware simulator".
+- A MkDocs page for the package (`docs/`, `mkdocs.yml`)
+- `pnpm changeset`: minor for `@cypherock/sdk-hw-simulator`, patch for `@cypherock/sdk-interfaces`

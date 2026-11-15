@@ -8,7 +8,15 @@
  */
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#define sleep_1ms() Sleep(1)
+#else
 #include <unistd.h>
+#define sleep_1ms() usleep(1000)
+#endif
 
 #include "../simulator/transport/sim_socket.h"
 #include "../simulator/transport/sim_transport.h"
@@ -24,13 +32,17 @@ int main(void) {
   signal(SIGINT, handle_signal);
   signal(SIGTERM, handle_signal);
 
-  sim_transport_init();
-  if (sim_socket_port() == 0)
+#ifdef _WIN32
+  _putenv("CYPHEROCK_SIM_LOOPBACK=1");
+#else
+  setenv("CYPHEROCK_SIM_LOOPBACK", "1", 1);
+#endif
+  if (sim_transport_init(NULL) != 0)
     return 1;
 
   while (running) {
     sim_transport_tick();
-    usleep(1000); /* the real simulator loop also does UI work here */
+    sleep_1ms(); /* the real simulator loop also does UI work here */
   }
 
   sim_socket_deinit();

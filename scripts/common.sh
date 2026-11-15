@@ -6,7 +6,7 @@ set -euo pipefail
 BRIDGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="${CYPHEROCK_WORKSPACE:-$(cd "$BRIDGE_ROOT/.." && pwd)}"
 
-GITHUB_USER="${GITHUB_USER:-YOUR_GITHUB_USERNAME}"
+GITHUB_USER="${GITHUB_USER:-XSTRANGER-7}"
 FIRMWARE_DIR="${FIRMWARE_DIR:-$WORKSPACE/x1_wallet_firmware}"
 SDK_DIR="${SDK_DIR:-$WORKSPACE/sdk}"
 
@@ -16,8 +16,9 @@ FIRMWARE_REF="${FIRMWARE_REF:-feat/simulator-communication}"
 SDK_REF="${SDK_REF:-feat/simulator-transport}"
 
 SIM_PORT="${CYPHEROCK_SIM_PORT:-52640}"
-SIM_BUILD_DIR="${SIM_BUILD_DIR:-$FIRMWARE_DIR/build-sim}"
+SIM_BUILD_DIR="${SIM_BUILD_DIR:-$FIRMWARE_DIR/build/Simulator}"   # build/ is git-ignored in the firmware repo
 SIM_LOG="${SIM_LOG:-$BRIDGE_ROOT/.sim.log}"
+SIM_STATE_DIR="${SIM_STATE_DIR:-$BRIDGE_ROOT/.sim-state}"
 SIM_PID_FILE="$BRIDGE_ROOT/.sim.pid"
 
 info()  { printf '\033[1;34m[bridge]\033[0m %s\n' "$*"; }

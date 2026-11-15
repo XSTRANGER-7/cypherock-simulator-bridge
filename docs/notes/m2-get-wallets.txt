@@ -1,0 +1,2 @@
+wallets: 1
+- SIMTEST  id=ae0f66a57d2451e0a5e2683f1bffe13e30b02ae9fcab9890aec9da477170366c  pin=false  passphrase=false  valid=true

@@ -1,23 +1,21 @@
 /**
- * Local copy of the SDK connection contract.
+ * Local copy of the SDK connection contract, so this package builds and tests
+ * on its own, outside the Cypherock SDK monorepo.
  *
- * This file exists so the package builds and tests on its own, outside the
- * Cypherock SDK monorepo. The shape below follows IDeviceConnection from
- * @cypherock/sdk-interfaces as best understood from the public SDK.
- *
- * BEFORE OPENING AN UPSTREAM PR:
- *   1. Open sdk/packages/interfaces/src and find `interface IDeviceConnection`.
- *   2. Compare every method name, argument and return type with the list below.
- *   3. Replace this file with:
- *        export type { IDeviceConnection, DeviceState } from '@cypherock/sdk-interfaces';
- *   4. Fix any compile errors in deviceConnection.ts. They will show you
- *      exactly where the real contract differs.
+ * Copied from sdk/packages/interfaces/src/connection.ts (commit 4e44158).
+ * The SDK fork's package (sdk/packages/hw-simulator) imports the real types
+ * from @cypherock/sdk-interfaces instead.
  */
 
 export enum DeviceState {
   BOOTLOADER = 0,
   INITIAL = 1,
   MAIN = 2,
+}
+
+export interface PoolData {
+  id: string;
+  data: Uint8Array;
 }
 
 export interface IDeviceConnection {
@@ -28,10 +26,9 @@ export interface IDeviceConnection {
   getSequenceNumber(): Promise<number>;
   getNewSequenceNumber(): Promise<number>;
   getDeviceState(): Promise<DeviceState>;
-  isInitialized(): Promise<boolean>;
   send(data: Uint8Array): Promise<void>;
   receive(): Promise<Uint8Array | undefined>;
-  peek(): Promise<Uint8Array[]>;
+  peek(): Promise<PoolData[]>;
   destroy(): Promise<void>;
 }
 
@@ -50,4 +47,6 @@ export interface SimulatorConnectionOptions {
   frameSize?: number;
   /** Optional logger for debugging raw traffic. */
   logger?: (message: string) => void;
+  /** Called for every frame in either direction. */
+  onFrame?: (direction: 'tx' | 'rx', frame: Uint8Array) => void;
 }

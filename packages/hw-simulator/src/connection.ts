@@ -1,6 +1,8 @@
 import net from 'node:net';
+import { randomUUID } from 'node:crypto';
 import { FrameAccumulator, toFrames } from './framing';
 import { SimulatorConnectionError, SimulatorErrorCode } from './errors';
+import type { PoolData } from './types';
 
 export interface SocketChannelOptions {
   host: string;
@@ -10,6 +12,8 @@ export interface SocketChannelOptions {
   retryDelayMs: number;
   frameSize: number;
   logger?: (message: string) => void;
+  /** Called for every frame in either direction (playground frame log). */
+  onFrame?: (direction: 'tx' | 'rx', frame: Uint8Array) => void;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -18,14 +22,17 @@ const toHex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex');
 
 /**
  * Low-level TCP channel to the simulator.
- * Knows nothing about the Cypherock protocol: it only moves frames.
+ * Knows nothing about the Cypherock protocol: it only moves 64-byte frames.
+ *
+ * Incoming frames go into a pool of { id, data } items, the same shape and
+ * semantics as @cypherock/sdk-hw-hid's DataListener: sdk-core polls
+ * receive() (consumes) and peek() (does not consume, ids stay stable).
  */
 export class SocketChannel {
   private socket: net.Socket | undefined;
   private readonly accumulator: FrameAccumulator;
-  private readonly queue: Uint8Array[] = [];
-  private waiters: Array<(frame: Uint8Array | undefined) => void> = [];
-  private closed = false;
+  private readonly pool: PoolData[] = [];
+  private closed = true;
 
   private constructor(private readonly options: SocketChannelOptions) {
     this.accumulator = new FrameAccumulator(options.frameSize);
@@ -93,18 +100,14 @@ export class SocketChannel {
     socket.on('data', (chunk: Buffer) => {
       for (const frame of this.accumulator.push(new Uint8Array(chunk))) {
         this.log(`rx ${toHex(frame)}`);
-        const waiter = this.waiters.shift();
-        if (waiter) waiter(frame);
-        else this.queue.push(frame);
+        this.options.onFrame?.('rx', frame);
+        this.pool.push({ id: randomUUID(), data: frame });
       }
     });
 
     socket.on('close', () => {
       this.closed = true;
       this.log('socket closed');
-      const waiters = this.waiters;
-      this.waiters = [];
-      waiters.forEach((w) => w(undefined));
     });
 
     socket.on('error', (error) => this.log(`socket error: ${error.message}`));
@@ -116,11 +119,12 @@ export class SocketChannel {
 
   async write(data: Uint8Array): Promise<void> {
     if (!this.isOpen || !this.socket) {
-      throw new SimulatorConnectionError(SimulatorErrorCode.NOT_CONNECTED);
+      throw new SimulatorConnectionError(SimulatorErrorCode.CONNECTION_CLOSED);
     }
     const socket = this.socket;
     for (const frame of toFrames(data, this.options.frameSize)) {
       this.log(`tx ${toHex(frame)}`);
+      this.options.onFrame?.('tx', frame);
       await new Promise<void>((resolve, reject) => {
         socket.write(frame, (error) => {
           if (error) reject(new SimulatorConnectionError(SimulatorErrorCode.WRITE_FAILED, error));
@@ -130,41 +134,23 @@ export class SocketChannel {
     }
   }
 
-  /** Return the next frame without waiting; undefined if none is queued. */
+  /** Next frame, or undefined at once. Same contract as hw-hid (pool.shift()?.data). */
   tryRead(): Uint8Array | undefined {
-    return this.queue.shift();
+    return this.pool.shift()?.data;
   }
 
-  /** Wait up to timeoutMs for the next frame. */
-  read(timeoutMs: number): Promise<Uint8Array | undefined> {
-    const queued = this.queue.shift();
-    if (queued) return Promise.resolve(queued);
-    if (!this.isOpen) return Promise.resolve(undefined);
-
-    return new Promise((resolve) => {
-      const waiter = (frame: Uint8Array | undefined) => {
-        clearTimeout(timer);
-        resolve(frame);
-      };
-      const timer = setTimeout(() => {
-        this.waiters = this.waiters.filter((w) => w !== waiter);
-        resolve(undefined);
-      }, timeoutMs);
-      this.waiters.push(waiter);
-    });
-  }
-
-  /** Snapshot of queued frames, not consumed. */
-  peekAll(): Uint8Array[] {
-    return this.queue.map((frame) => frame.slice());
+  /** Snapshot of pooled frames, not consumed; ids stay stable between calls. */
+  peekAll(): PoolData[] {
+    return this.pool.map((item) => ({ id: item.id, data: item.data.slice() }));
   }
 
   async close(): Promise<void> {
-    if (!this.socket) return;
     const socket = this.socket;
     this.socket = undefined;
+    this.closed = true;
+    this.pool.length = 0;
+    if (!socket || socket.destroyed) return;
     await new Promise<void>((resolve) => {
-      if (socket.destroyed) return resolve();
       socket.once('close', () => resolve());
       socket.end();
       setTimeout(() => {
@@ -172,7 +158,5 @@ export class SocketChannel {
         resolve();
       }, 200);
     });
-    this.closed = true;
-    this.queue.length = 0;
   }
 }

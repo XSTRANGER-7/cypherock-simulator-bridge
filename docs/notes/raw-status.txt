@@ -1,0 +1,3 @@
+tx STATUS_REQ seq=FFFF chunk 1/1 len=0 | 555547f400010001ffff010000000000
+rx STATUS seq=FFFF chunk 1/1 len=8 | 5555d37900010001ffff040000190b080004000010011801
+OK: the firmware simulator answered a raw STATUS_REQ

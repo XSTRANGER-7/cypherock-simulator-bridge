@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Starts the simulator (or the echo server) and waits until the socket is up.
+# Starts the simulator (or the echo server / mock device) and waits until the
+# socket is up.
 #
 #   ./scripts/start-simulator.sh          real firmware simulator
 #   ./scripts/start-simulator.sh --echo   C loopback bridge only (no firmware)
-#   ./scripts/start-simulator.sh --mock   TypeScript mock device (no compiler needed)
+#   ./scripts/start-simulator.sh --mock   TypeScript mock device (no compiler)
+#
+# The simulator keeps its flash and card files (sim_*.bin) in the working
+# directory, so it runs inside $SIM_STATE_DIR. Delete that folder to
+# factory-reset the simulator. Env vars CYPHEROCK_SIM_VERBOSE,
+# CYPHEROCK_SIM_LOOPBACK and CYPHEROCK_SIM_TEST_MNEMONIC are passed through.
 source "$(dirname "$0")/common.sh"
 
 MODE="${1:-sim}"
@@ -28,12 +34,18 @@ case "$MODE" in
     ;;
 esac
 
-info "Starting: ${CMD[*]} (port $SIM_PORT)"
-CYPHEROCK_SIM_PORT="$SIM_PORT" "${CMD[@]}" >"$SIM_LOG" 2>&1 &
+mkdir -p "$SIM_STATE_DIR"
+info "Starting: ${CMD[*]} (port $SIM_PORT, state $SIM_STATE_DIR)"
+(cd "$SIM_STATE_DIR" && CYPHEROCK_SIM_PORT="$SIM_PORT" exec "${CMD[@]}") >"$SIM_LOG" 2>&1 &
 echo $! > "$SIM_PID_FILE"
 
-for _ in $(seq 1 100); do
-  if node -e "require('net').connect($SIM_PORT,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
+for _ in $(seq 1 300); do
+  if node -e "require('net').connect($SIM_PORT,'127.0.0.1').on('connect',function(){this.destroy();process.exit(0)}).on('error',()=>process.exit(1))" 2>/dev/null; then
+    if [ "$MODE" = "sim" ]; then
+      # The socket opens before boot finishes; wait until the firmware is idle.
+      (cd "$BRIDGE_ROOT" && CYPHEROCK_SIM_PORT="$SIM_PORT" npx tsx scripts/wait-ready.ts 60000) ||
+        { cat "$SIM_LOG" >&2; fail "simulator did not become idle"; }
+    fi
     info "Ready on 127.0.0.1:$SIM_PORT (log: $SIM_LOG)"
     exit 0
   fi
@@ -42,4 +54,4 @@ for _ in $(seq 1 100); do
 done
 
 cat "$SIM_LOG" >&2
-fail "socket did not open within 10s. Is sim_transport_init() called at start-up?"
+fail "socket did not open within 30s. Is sim_transport_init() called at start-up?"

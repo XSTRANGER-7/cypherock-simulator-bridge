@@ -1,0 +1,14 @@
+SDK version reported by firmware: 3.0.0
+Device info from the X1 firmware simulator:
+{
+  "deviceSerial": "8485011716705c7dbe8fdf69291fa3fc11f6bc30b55262e38196d23562707ed5",
+  "isAuthenticated": true,
+  "appletList": [],
+  "isInitial": false,
+  "onboardingStep": 5,
+  "firmwareVariant": 0,
+  "firmwareVariantInfo": {
+    "variantId": 0,
+    "variantStr": "MULTI_COIN"
+  }
+}

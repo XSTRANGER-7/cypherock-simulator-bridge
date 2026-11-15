@@ -19,11 +19,15 @@ afterEach(async () => {
 const connect = () =>
   DeviceConnection.create({ port: device.port, retries: 3, retryDelayMs: 50 });
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Polls like sdk-core's waitForPacket (RECHECK_TIME = 2 ms). */
 async function receiveWithin(connection: DeviceConnection, ms = 1000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     const frame = await connection.receive();
     if (frame) return frame;
+    await sleep(2);
   }
   return undefined;
 }
@@ -66,23 +70,30 @@ test('a payload larger than one frame arrives as several frames', async () => {
   await connection.destroy();
 });
 
-test('receive returns undefined quickly when nothing is pending', async () => {
+test('receive returns undefined at once when nothing is pending (hw-hid contract)', async () => {
   const connection = await connect();
-  const start = Date.now();
+  const start = process.hrtime.bigint();
   assert.equal(await connection.receive(), undefined);
-  assert.ok(Date.now() - start < 200);
+  const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+  assert.ok(elapsedMs < 5, `receive() took ${elapsedMs} ms`);
   await connection.destroy();
 });
 
-test('peek shows queued frames without consuming them', async () => {
+test('peek returns { id, data } items without consuming them, ids stay stable', async () => {
   const connection = await connect();
   await connection.send(new Uint8Array([1]));
-  await new Promise((r) => setTimeout(r, 100));
-  const peeked = await connection.peek();
-  assert.equal(peeked.length, 1);
+  await sleep(100);
+  const first = await connection.peek();
+  const second = await connection.peek();
+  assert.equal(first.length, 1);
+  assert.equal(typeof first[0].id, 'string');
+  assert.ok(first[0].data instanceof Uint8Array);
+  assert.equal(first[0].data.length, FRAME_SIZE);
+  assert.equal(first[0].id, second[0].id, 'sdk-core skips seen items by id');
   const frame = await connection.receive();
   assert.ok(frame);
   assert.equal(frame[0], 1);
+  assert.equal((await connection.peek()).length, 0);
   await connection.destroy();
 });
 
@@ -132,12 +143,28 @@ test('list() finds a running simulator and returns [] when none is running', asy
   device = await MockDevice.start();
 });
 
-test('using a destroyed connection throws NOT_CONNECTED', async () => {
+test('a destroyed connection: send throws NOT_CONNECTED, receive returns undefined', async () => {
   const connection = await connect();
   await connection.destroy();
-  await assert.rejects(connection.receive(), (error: unknown) => {
+  assert.equal(await connection.isConnected(), false);
+  assert.equal(await connection.receive(), undefined);
+  await assert.rejects(connection.send(new Uint8Array([1])), (error: unknown) => {
     assert.ok(error instanceof SimulatorConnectionError);
     assert.equal(error.code, SimulatorErrorCode.NOT_CONNECTED);
     return true;
   });
+});
+
+test('onFrame sees every tx and rx frame', async () => {
+  const seen: string[] = [];
+  const connection = await DeviceConnection.create({
+    port: device.port,
+    retries: 3,
+    retryDelayMs: 50,
+    onFrame: (dir, frame) => seen.push(`${dir}:${frame[0]}`),
+  });
+  await connection.send(new Uint8Array([42]));
+  assert.ok(await receiveWithin(connection));
+  assert.deepEqual(seen, ['tx:42', 'rx:42']);
+  await connection.destroy();
 });
