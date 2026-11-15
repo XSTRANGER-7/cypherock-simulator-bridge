@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X1 Simulator Playground</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>X1 Simulator Playground</h1>
+      <p>Real Cypherock SDK calls answered by the real X1 firmware, over a localhost bridge. No hardware.</p>
+    </div>
+    <div class="controls">
+      <span class="pill" id="sim-pill">Simulator: checking</span>
+      <button id="btn-start">Start</button>
+      <button id="btn-stop" class="ghost">Stop</button>
+      <button id="btn-reset" class="ghost">Reset state</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner">Test wallet <b>SIMTEST</b> uses the published test mnemonic <code id="mnemonic">…</code>. Never use a real seed or real funds.</div>
+
+  <main>
+    <section class="panel ops">
+      <h2>Operations</h2>
+
+      <div class="card">
+        <h3>Device</h3>
+        <div class="row">
+          <button data-op="raw-status">Raw status packet</button>
+          <button data-op="device-info">Device info</button>
+          <button data-op="wallets">Wallets</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Ethereum and EVM chains</h3>
+        <label>Chain
+          <select id="evm-chain"></select>
+        </label>
+        <label>Address index
+          <input id="evm-index" type="number" min="0" max="20" value="0">
+        </label>
+        <button data-op="eth-address">Get address</button>
+        <hr>
+        <label>Send to
+          <input id="tx-to" value="0x000000000000000000000000000000000000dEaD" spellcheck="false">
+        </label>
+        <label>Value (ETH)
+          <input id="tx-value" value="0.001">
+        </label>
+        <button data-op="sign-tx">Sign transaction</button>
+        <hr>
+        <label>Message
+          <input id="msg-text" value="Hello from the Cypherock X1 simulator">
+        </label>
+        <div class="row">
+          <button data-op="sign-message">Sign message</button>
+          <button data-op="sign-typed-data">Sign EIP-712 (Mail)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Bitcoin family</h3>
+        <label>Coin
+          <select id="btc-coin">
+            <option value="btc">Bitcoin (m/44'/0'/0')</option>
+            <option value="btc-segwit">Bitcoin segwit (m/84'/0'/0')</option>
+            <option value="ltc">Litecoin</option>
+            <option value="doge">Dogecoin</option>
+            <option value="dash">Dash</option>
+          </select>
+        </label>
+        <button data-op="btc-xpub">Get xpub</button>
+      </div>
+
+      <div class="card">
+        <h3>Other coins</h3>
+        <label>Coin
+          <select id="coin"></select>
+        </label>
+        <button data-op="coin-key">Get public key</button>
+      </div>
+
+      <div class="card">
+        <h3>Everything</h3>
+        <button id="btn-all">Run every check</button>
+        <p class="hint">Runs each operation above in order and fills a pass/fail table.</p>
+      </div>
+    </section>
+
+    <section class="panel result">
+      <h2>Result <span id="result-badge" class="badge"></span></h2>
+      <div id="result-meta" class="meta">Start the simulator, then pick an operation.</div>
+      <table id="summary" class="summary hidden">
+        <thead><tr><th>Operation</th><th>Result</th><th>Time</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <pre id="result">{}</pre>
+    </section>
+
+    <section class="panel frames">
+      <h2>Wire <span class="meta" id="frame-count">0 frames</span></h2>
+      <div class="tabs">
+        <button class="tab active" data-tab="frames">64-byte frames</button>
+        <button class="tab" data-tab="log">Simulator log</button>
+        <button id="btn-clear" class="ghost small">Clear</button>
+      </div>
+      <ol id="frames" class="stream"></ol>
+      <ol id="log" class="stream hidden"></ol>
+    </section>
+  </main>
+
+  <footer>
+    Bridge: TCP 127.0.0.1:52640, fixed 64-byte frames · SDK: unmodified Cypherock SDK + @cypherock/sdk-hw-simulator ·
+    <a href="https://github.com/XSTRANGER-7/cypherock-simulator-bridge">source</a>
+  </footer>
+  <script src="/app.js"></script>
+</body>
+</html>

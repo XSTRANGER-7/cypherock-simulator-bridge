@@ -30,6 +30,8 @@ function load(npmName: string, folder: string): any {
 
 export const loadManagerApp = () => load('@cypherock/sdk-app-manager', 'app-manager').ManagerApp;
 export const loadEvmApp = () => load('@cypherock/sdk-app-evm', 'app-evm');
+/** Any SDK app package by folder name, e.g. loadApp('app-btc').BtcApp */
+export const loadApp = (folder: string) => load(`@cypherock/sdk-${folder}`, folder);
 
 export function hex(bytes: Uint8Array | string): string {
   return typeof bytes === 'string' ? bytes : Buffer.from(bytes).toString('hex');

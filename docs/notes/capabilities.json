@@ -1,0 +1,310 @@
+[
+  {
+    "area": "Manager",
+    "operation": "getDeviceInfo",
+    "result": "PASS",
+    "detail": "serial 8485011716705c7d..., auth=true, onboarding=5, version=absent",
+    "ms": 1092
+  },
+  {
+    "area": "Manager",
+    "operation": "getWallets",
+    "result": "PASS",
+    "detail": "1 wallet(s): SIMTEST",
+    "ms": 1115
+  },
+  {
+    "area": "Manager",
+    "operation": "getLogs",
+    "result": "PASS",
+    "detail": "firmware answered \"logs are disabled\" (the default; enable logging in device settings)",
+    "ms": 1026
+  },
+  {
+    "area": "Manager",
+    "operation": "selectWallet",
+    "result": "NEEDS INPUT",
+    "detail": "shows the wallet list and waits for a joystick choice (dev builds do not auto-answer list menus)",
+    "ms": 15005
+  },
+  {
+    "area": "Manager",
+    "operation": "trainJoystick",
+    "result": "PASS",
+    "detail": "joystick training completed (emulated key presses)",
+    "ms": 5073
+  },
+  {
+    "area": "Manager",
+    "operation": "trainCard",
+    "result": "PASS",
+    "detail": "{\"walletList\":[],\"cardPaired\":false}",
+    "ms": 2475
+  },
+  {
+    "area": "Manager",
+    "operation": "authDevice",
+    "result": "NOT RUN",
+    "detail": "verifies with Cypherock's server; the simulator has no provisioned device keys",
+    "ms": 0
+  },
+  {
+    "area": "Manager",
+    "operation": "authCard",
+    "result": "NOT RUN",
+    "detail": "verifies the card with Cypherock's server; no real card",
+    "ms": 0
+  },
+  {
+    "area": "Manager",
+    "operation": "updateFirmware",
+    "result": "NOT RUN",
+    "detail": "needs the bootloader, which the simulator does not have",
+    "ms": 0
+  },
+  {
+    "area": "EVM Ethereum",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6267
+  },
+  {
+    "area": "EVM Polygon",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6566
+  },
+  {
+    "area": "EVM BNB Chain",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6212
+  },
+  {
+    "area": "EVM Fantom",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6296
+  },
+  {
+    "area": "EVM Avalanche",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6236
+  },
+  {
+    "area": "EVM Optimism",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6242
+  },
+  {
+    "area": "EVM Arbitrum",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6243
+  },
+  {
+    "area": "EVM Base",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6272
+  },
+  {
+    "area": "EVM Hyperliquid",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (matches ethers)",
+    "ms": 6277
+  },
+  {
+    "area": "EVM Ethereum",
+    "operation": "getUserVerifiedPublicKey",
+    "result": "PASS",
+    "detail": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 shown on device and confirmed",
+    "ms": 9532
+  },
+  {
+    "area": "EVM Ethereum",
+    "operation": "signTxn",
+    "result": "PASS",
+    "detail": "chain 1 EIP-1559, signer verified by ethers",
+    "ms": 15075
+  },
+  {
+    "area": "EVM Polygon",
+    "operation": "signTxn",
+    "result": "PASS",
+    "detail": "chain 137 EIP-1559, signer verified by ethers",
+    "ms": 15503
+  },
+  {
+    "area": "EVM Base",
+    "operation": "signTxn",
+    "result": "PASS",
+    "detail": "chain 8453 EIP-1559, signer verified by ethers",
+    "ms": 15057
+  },
+  {
+    "area": "EVM Ethereum",
+    "operation": "signPersonalMsg",
+    "result": "PASS",
+    "detail": "EIP-191 personal_sign, verified by ethers.verifyMessage",
+    "ms": 9458
+  },
+  {
+    "area": "EVM Ethereum",
+    "operation": "signEthMsg",
+    "result": "PASS",
+    "detail": "eth_sign, verified by ethers.verifyMessage",
+    "ms": 9846
+  },
+  {
+    "area": "EVM Ethereum",
+    "operation": "signTypedMsg (EIP-712)",
+    "result": "PASS",
+    "detail": "EIP-712 Mail example, verified by ethers.verifyTypedData",
+    "ms": 44832
+  },
+  {
+    "area": "Bitcoin legacy",
+    "operation": "getXpubs",
+    "result": "PASS",
+    "detail": "xpub6Cp8b4UmRiNyx3... (matches ethers)",
+    "ms": 5198
+  },
+  {
+    "area": "Bitcoin segwit",
+    "operation": "getXpubs",
+    "result": "PASS",
+    "detail": "zpub6qiy8cvfjiUGpw...",
+    "ms": 5541
+  },
+  {
+    "area": "Litecoin",
+    "operation": "getXpubs",
+    "result": "PASS",
+    "detail": "Ltub2ZjHHPSEG5U7VP...",
+    "ms": 5337
+  },
+  {
+    "area": "Dogecoin",
+    "operation": "getXpubs",
+    "result": "PASS",
+    "detail": "dgub8sk9DL4mokh4n4...",
+    "ms": 5547
+  },
+  {
+    "area": "Dash",
+    "operation": "getXpubs",
+    "result": "PASS",
+    "detail": "xpub6Ci2XoTPq4XGeR...",
+    "ms": 5381
+  },
+  {
+    "area": "Bitcoin legacy",
+    "operation": "getPublicKey",
+    "result": "PASS",
+    "detail": "address 1Ei9UmLQv4o4UJTy5r5mnGFeC9auM3W5P1",
+    "ms": 8424
+  },
+  {
+    "area": "Bitcoin",
+    "operation": "signTxn",
+    "result": "NOT RUN",
+    "detail": "needs funded UTXOs with their previous transactions; not attempted",
+    "ms": 0
+  },
+  {
+    "area": "Solana",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "BtELVjZSaWhMat94P9HyasX3Gvpv6C7WHXJGqWdZbwSQ",
+    "ms": 4545
+  },
+  {
+    "area": "NEAR",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "4cd9c752fa915e48c787f5c357a8c7df79b45f9c0d4a387d...",
+    "ms": 3810
+  },
+  {
+    "area": "Tron",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "TWer2Ygk5TEheHp3TPuYeqxmB6SsGZmaL6",
+    "ms": 3427
+  },
+  {
+    "area": "XRP",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "rnrbiYDUYTJS4JVdSV5FtyCj4HFuRjfLKM",
+    "ms": 3747
+  },
+  {
+    "area": "Starknet",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "0x0399dc8011ef4bb84161ddbdc2d3479a50ac431dacb4e1...",
+    "ms": 3529
+  },
+  {
+    "area": "ICP",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "03c8009d938f001dfd992766f51b9956e4500d340d5627fb...",
+    "ms": 3554
+  },
+  {
+    "area": "Stellar",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "GCRN5PMAG5FM5QLCH7BUZPRQ7UIW37LBZLF2BIDEOSG4ZQ6H...",
+    "ms": 3390
+  },
+  {
+    "area": "Constellation",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "DAG8rSbeFC2HYBkzGxYdTAX1UJ6PvVnTAY8j9jzA",
+    "ms": 3779
+  },
+  {
+    "area": "Sia",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "1f00e7a1ef9f81769020d386e711fc8b562fcae5002de6ca...",
+    "ms": 5595
+  },
+  {
+    "area": "Canton",
+    "operation": "getPublicKeys",
+    "result": "PASS",
+    "detail": "217b91e990::122072f30431d413722bf97e2266637c8994...",
+    "ms": 5952
+  },
+  {
+    "area": "Other coins",
+    "operation": "signTxn",
+    "result": "NOT RUN",
+    "detail": "each needs a chain-specific unsigned transaction; covered for EVM above",
+    "ms": 0
+  },
+  {
+    "area": "Inheritance",
+    "operation": "encrypt/decrypt with PIN",
+    "result": "NOT RUN",
+    "detail": "needs a PIN wallet and card taps",
+    "ms": 0
+  }
+]

@@ -32,6 +32,33 @@ OK: firmware signature verified by viem and ethers
 
 Full outputs and the frame-by-frame trace are in [docs/notes/](docs/notes).
 
+## Try it in the browser
+
+![Web playground](docs/notes/playground.png)
+
+```bash
+# Any OS with Docker (builds upstream firmware + SDK with the patches, ~15 min)
+docker build -t x1-sim-playground -f docker/Dockerfile .
+docker run --rm -p 127.0.0.1:3000:3000 x1-sim-playground
+
+# Or locally, after ./scripts/build-simulator.sh and the SDK build
+npm run playground:web
+```
+
+Open http://127.0.0.1:3000. Start the simulator, then click: device info, wallets, an EVM address on 9 chains, sign a transaction / message / EIP-712, Bitcoin-family xpubs, and public keys for 10 more coins. Every 64-byte frame shows up decoded in the right panel. EVM results and the BTC xpub are marked **verified** when ethers derives the same thing from the test mnemonic. **Run every check** fills a pass/fail table.
+
+## What works in the simulator
+
+From the [capability matrix](docs/notes/capabilities.md) (`npm run capabilities`): **37 pass, 0 fail**, 1 needs a key press, 6 not run on purpose.
+
+- **Manager:** getDeviceInfo, getWallets, getLogs, trainJoystick, trainCard. `selectWallet` waits for a joystick choice; authDevice/authCard need Cypherock's server; updateFirmware needs a bootloader.
+- **EVM:** addresses on Ethereum, Polygon, BNB Chain, Fantom, Avalanche, Optimism, Arbitrum, Base, Hyperliquid; on-device address check; transaction signing (chains 1, 137, 8453); personal_sign; eth_sign; EIP-712. All verified with ethers.
+- **Bitcoin family:** xpubs for BTC (legacy and segwit), LTC, DOGE, DASH; BTC address.
+- **Other coins:** public keys for Solana, NEAR, Tron, XRP, Starknet, ICP, Stellar, Constellation, Sia, Canton.
+- **Not working:** X1 card flows. The simulator's fake card speaks an old plaintext protocol while the firmware encrypts card commands, so this project uses a test-mnemonic wallet (`SIMTEST`) instead.
+
+Every way to test (Docker, playground, examples, matrix, test layers, CI): [docs/testing.md](docs/testing.md).
+
 ## Why
 
 Building on the Cypherock SDK today needs a physical X1 for every test. The firmware repo ships a desktop simulator, but its USB path was a stub (`SIM_Receive_FS()` was a `TODO` and its poll was never called), so nothing could reach it. This project adds the missing link:
@@ -69,7 +96,7 @@ The simulator polls the socket inside `BSP_DelayMs()`, every 5 ms, the way the U
 | 5 | M1 `getDeviceInfo`, M2 `getWallets` | Done | [m1](docs/notes/m1-get-device-info.txt), [m2](docs/notes/m2-get-wallets.txt) |
 | 6 | EVM address and signing (M3 shortcut, M4) | Done with test wallet | [address](docs/notes/m2-get-eth-address.txt), [signature](docs/notes/m4-sign-tx.txt); real card emulation is a follow-up |
 | 7 | Layer-4 tests and CI | Done locally; CI ready | 8 SDK <-> firmware tests pass; firmware unit tests 130/130; [ci.yml](.github/workflows/ci.yml) |
-| 8 | Playground and demo video | Terminal playground only | Web playground and video not built yet |
+| 8 | Playground and demo video | Web playground done; video not made | `npm run playground:web` or Docker; [smoke test](tools/playground-smoke.ts) 33/33, [browser test](tools/playground-ui-test.ts) |
 
 ## Repository layout
 
@@ -85,7 +112,10 @@ cypherock-simulator-bridge/
 │   ├── simulator/testing/         optional SIMTEST wallet (test mnemonic only)
 │   └── test/                      C unit tests + loopback echo server
 ├── sdk-patch/sdk.patch            packages/hw-simulator + ConnectionTypeMap.SIMULATOR, applies to upstream 4e44158
-├── examples/                      raw-status, device info, wallets, ETH address, sign-tx, playground
+├── examples/                      raw-status, device info, wallets, ETH address, sign-tx, terminal playground
+├── playground/                    web playground: server.ts + public/ (no build step)
+├── tools/                         capability matrix, playground smoke and browser tests
+├── docker/Dockerfile              one-command playground image
 ├── integration-tests/             TS <-> C bridge, SDK <-> firmware simulator
 ├── scripts/                       build, start (waits until firmware is idle), stop, run tests
 └── docs/                          architecture, setup (Linux + Windows), protocol, limitations, notes
@@ -135,7 +165,7 @@ CYPHEROCK_SIM=1 ./scripts/run-tests.sh    # all test layers
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) · [Setup: Linux and Windows](docs/setup.md) · [Wire protocol](docs/protocol.md)
+- [Testing: every way](docs/testing.md) · [Architecture](docs/architecture.md) · [Setup: Linux and Windows](docs/setup.md) · [Wire protocol](docs/protocol.md)
 - [Limitations and safety](docs/limitations.md) · [Upstream PR plan](docs/upstream-prs.md) · [Troubleshooting](docs/troubleshooting.md)
 
 ## Safety

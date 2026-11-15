@@ -19,7 +19,9 @@
     "playground": "tsx examples/playground.ts",
     "example:raw": "tsx examples/raw-status.ts",
     "example:sign": "tsx examples/sign-tx.ts",
-    "wait-ready": "tsx scripts/wait-ready.ts"
+    "wait-ready": "tsx scripts/wait-ready.ts",
+    "playground:web": "tsx playground/server.ts",
+    "capabilities": "tsx tools/capabilities.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

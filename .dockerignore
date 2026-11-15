@@ -1,0 +1,6 @@
+node_modules
+.sim-state
+.sim.log
+.sim.pid
+firmware-patch/build
+.git

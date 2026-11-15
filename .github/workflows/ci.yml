@@ -10,6 +10,7 @@ env:
   # Upstream commits this bridge was built and tested against.
   FIRMWARE_REF: 5b11739d
   SDK_REF: 4e44158
+  SDK_APPS: manager evm btc solana near tron xrp starknet icp stellar constellation sia canton
 
 jobs:
   bridge:
@@ -31,13 +32,14 @@ jobs:
         run: npx tsx --test integration-tests/c-bridge.test.ts
 
   simulator:
-    name: Real SDK <-> real firmware simulator (layer 4)
+    name: Real SDK <-> real firmware simulator (layer 4, capabilities, playground)
     runs-on: ubuntu-22.04
     env:
       CYPHEROCK_SIM: '1'
       CYPHEROCK_SIM_TEST_MNEMONIC: test test test test test test test test test test test junk
       FIRMWARE_DIR: ${{ github.workspace }}/../x1_wallet_firmware
       SDK_DIR: ${{ github.workspace }}/../sdk
+      LOG_LEVEL: error
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +50,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: pip install wheel protobuf grpcio-tools==1.47.0
+      - run: pip install wheel protobuf grpcio-tools==1.47.0 "setuptools<81"
       - name: protoc 24.4
         run: |
           curl -sSLO https://github.com/protocolbuffers/protobuf/releases/download/v24.4/protoc-24.4-linux-x86_64.zip
@@ -76,28 +78,69 @@ jobs:
           git checkout "$SDK_REF"
           git submodule update --init --recursive
           git apply "$GITHUB_WORKSPACE/sdk-patch/sdk.patch"
-          pnpm install --filter "@cypherock/sdk-hw-simulator..." \
-            --filter "@cypherock/sdk-app-manager..." --filter "@cypherock/sdk-app-evm..."
-          pnpm exec turbo run build --no-daemon --filter="@cypherock/sdk-hw-simulator..." \
-            --filter="@cypherock/sdk-app-manager..." --filter="@cypherock/sdk-app-evm..."
+          F="--filter=@cypherock/sdk-hw-simulator..."
+          for a in $SDK_APPS; do F="$F --filter=@cypherock/sdk-app-$a..."; done
+          pnpm install $F
+          pnpm exec turbo run build --no-daemon $F
           pnpm --filter @cypherock/sdk-hw-simulator test
 
       - run: npm ci || npm install
       - name: Layers 1-4
         run: xvfb-run -a ./scripts/run-tests.sh
-      - name: Examples (M1, M2, ETH address)
+      - name: Examples (M1, M2, ETH address, signing)
         run: |
           xvfb-run -a bash -c '
+            set -e
             ./scripts/start-simulator.sh
             npx tsx examples/raw-status.ts
             npx tsx examples/get-device-info.ts
             npx tsx examples/get-wallets.ts
             npx tsx examples/get-eth-address.ts
+            npx tsx examples/sign-tx.ts
             USE_SDK_TRANSPORT=1 npx tsx examples/get-device-info.ts
             ./scripts/stop-simulator.sh'
+      - name: Capability matrix
+        run: |
+          rm -rf .sim-state
+          xvfb-run -a bash -c './scripts/start-simulator.sh && npx tsx tools/capabilities.ts; s=$?; ./scripts/stop-simulator.sh; exit $s'
+          cat docs/notes/capabilities.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Web playground smoke test
+        run: |
+          rm -rf .sim-state
+          xvfb-run -a bash -c '
+            PLAYGROUND_AUTOSTART=1 npx tsx playground/server.ts > playground.log 2>&1 &
+            PG=$!
+            for i in $(seq 1 60); do curl -sf http://127.0.0.1:3000/api/state >/dev/null && break; sleep 1; done
+            npx tsx tools/playground-smoke.ts; s=$?
+            curl -s -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:3000/api/sim/stop
+            kill $PG; exit $s'
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: simulator-log
-          path: .sim.log
+          name: simulator-logs
+          path: |
+            .sim.log
+            playground.log
+            docs/notes/capabilities.md
           if-no-files-found: ignore
+
+  docker:
+    name: Docker playground image
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t x1-sim-playground -f docker/Dockerfile .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci || npm install
+      - name: Run the container and drive the playground from outside
+        run: |
+          docker run -d --name pg -p 127.0.0.1:3000:3000 x1-sim-playground
+          for i in $(seq 1 120); do
+            curl -sf http://127.0.0.1:3000/api/state | grep -q '"simulator": "running"' && break; sleep 2
+          done
+          npx tsx tools/playground-smoke.ts
+      - if: always()
+        run: docker logs pg | tail -100
