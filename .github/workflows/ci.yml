@@ -86,10 +86,10 @@ jobs:
 
       - run: npm ci || npm install
       - name: Layers 1-4
-        run: xvfb-run -a ./scripts/run-tests.sh
+        run: ./scripts/ci-run.sh "Layers 1-4" xvfb-run -a ./scripts/run-tests.sh
       - name: Examples (M1, M2, ETH address, signing)
         run: |
-          xvfb-run -a bash -c '
+          ./scripts/ci-run.sh "Examples" xvfb-run -a bash -c '
             set -e
             ./scripts/start-simulator.sh
             npx tsx examples/raw-status.ts
@@ -102,12 +102,12 @@ jobs:
       - name: Capability matrix
         run: |
           rm -rf .sim-state
-          xvfb-run -a bash -c './scripts/start-simulator.sh && npx tsx tools/capabilities.ts; s=$?; ./scripts/stop-simulator.sh; exit $s'
+          ./scripts/ci-run.sh "Capability matrix" xvfb-run -a bash -c './scripts/start-simulator.sh && npx tsx tools/capabilities.ts; s=$?; ./scripts/stop-simulator.sh; exit $s'
           cat docs/notes/capabilities.md >> "$GITHUB_STEP_SUMMARY"
       - name: Web playground smoke test
         run: |
           rm -rf .sim-state
-          xvfb-run -a bash -c '
+          ./scripts/ci-run.sh "Playground" xvfb-run -a bash -c '
             PLAYGROUND_AUTOSTART=1 npx tsx playground/server.ts > playground.log 2>&1 &
             PG=$!
             for i in $(seq 1 60); do curl -sf http://127.0.0.1:3000/api/state >/dev/null && break; sleep 1; done
