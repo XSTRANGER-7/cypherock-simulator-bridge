@@ -8,8 +8,8 @@ on:
 
 env:
   # Upstream commits this bridge was built and tested against.
-  FIRMWARE_REF: 5b11739d
-  SDK_REF: 4e44158
+  FIRMWARE_REF: '5b11739d'   # quoted: unquoted SHAs can parse as YAML numbers
+  SDK_REF: '4e44158'          # 4e44158 is scientific notation to YAML
   SDK_APPS: manager evm btc solana near tron xrp starknet icp stellar constellation sia canton
 
 jobs:
