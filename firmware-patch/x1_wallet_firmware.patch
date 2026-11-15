@@ -16,11 +16,54 @@ index 07669b2a..931a5005 100644
  #else
    uint8_t *serialized_flash_metadata = (uint8_t *)FLASH_DATA_ADDRESS;
  #endif
+diff --git a/common/libraries/crypto/mpz_operations/mpz_ecdsa.c b/common/libraries/crypto/mpz_operations/mpz_ecdsa.c
+index acf56d85..93d46f76 100644
+--- a/common/libraries/crypto/mpz_operations/mpz_ecdsa.c
++++ b/common/libraries/crypto/mpz_operations/mpz_ecdsa.c
+@@ -63,6 +63,8 @@
+ #include <bignum.h>
+ #include <../apps/starknet_app/starknet_context.h>
+ 
++#include "memzero.h"
++#include "rand.h"
+ #include "mini-gmp-helpers.h"
+ #include <stdbool.h>
+ 
+diff --git a/common/startup/application_startup.c b/common/startup/application_startup.c
+index b978db8c..00115b25 100644
+--- a/common/startup/application_startup.c
++++ b/common/startup/application_startup.c
+@@ -629,7 +629,9 @@ static void sim_hal_init(void) {
+   /* Tick init.
+    * You have to call 'lv_tick_inc()' in periodically to inform LittelvGL about
+    * how much time were elapsed Create an SDL thread to do this*/
++#ifndef __EMSCRIPTEN__
+   SDL_CreateThread(tick_thread, "tick", NULL);
++#endif /* WebAssembly has no threads: BSP_DelayMs() advances the tick */
+ 
+   /* Optional:
+    * Create a memory monitor task which prints the memory usage in
 diff --git a/simulator/BSP/board.c b/simulator/BSP/board.c
-index c9ac629e..55041910 100644
+index c9ac629e..fc64e2fb 100644
 --- a/simulator/BSP/board.c
 +++ b/simulator/BSP/board.c
-@@ -154,9 +154,9 @@ BSP_Status_t BSP_FlashSectorErase(uint32_t page_address, uint32_t noOfpages) {
+@@ -9,6 +9,15 @@
+ #include "sim_usb.h"
+ #include "stdlib.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++
++#include "keyboard.h"
++#include "mouse.h"
++/* Public only in Emscripten builds (simulator/lv_drivers/display/monitor.c) */
++void monitor_sdl_refr_core(void);
++#endif
++
+ uint32_t buzzer_counter = 0;
+ uint8_t STM32_UID[12] = {0};
+ 
+@@ -154,9 +163,9 @@ BSP_Status_t BSP_FlashSectorErase(uint32_t page_address, uint32_t noOfpages) {
  
  BSP_Status_t BSP_FlashSectorWrite(uint32_t *dstAddr,
                                    const uint32_t *srcAddr,
@@ -32,7 +75,7 @@ index c9ac629e..55041910 100644
      status = BSP_FLASH_ERR;
    return status;
  }
-@@ -166,14 +166,14 @@ BSP_Status_t BSP_FlashSectorWrite(uint32_t *dstAddr,
+@@ -166,14 +175,14 @@ BSP_Status_t BSP_FlashSectorWrite(uint32_t *dstAddr,
   */
  BSP_Status_t BSP_NonVolatileWrite(uint32_t addr,
                                    uint32_t *srcAddr,
@@ -49,9 +92,34 @@ index c9ac629e..55041910 100644
    if (status != BSP_OK)
      return status;
    return status;
-@@ -183,7 +183,16 @@ void BSP_reset(void) {
+@@ -182,8 +191,46 @@ BSP_Status_t BSP_NonVolatileWrite(uint32_t addr,
+ void BSP_reset(void) {
  }
  
++#ifdef __EMSCRIPTEN__
++/* WebAssembly build: no threads, so the jobs of the SDL refresh thread
++ * (monitor.c) and the LVGL tick thread (application_startup.c) run here, in
++ * the firmware's own wait loop. emscripten_sleep() hands control back to the
++ * browser (Asyncify), so the page stays responsive while the firmware waits. */
++static void wasm_pump(void) {
++  static uint32_t last_tick = 0;
++  uint32_t now = SDL_GetTicks();
++  if (last_tick == 0)
++    last_tick = now;
++  if (now > last_tick) {
++    lv_tick_inc(now - last_tick);
++    last_tick = now;
++  }
++
++  SDL_Event event;
++  while (SDL_PollEvent(&event)) {
++    mouse_handler(&event);
++    keyboard_handler(&event);
++  }
++  monitor_sdl_refr_core();
++}
++#endif
++
  void BSP_DelayMs(uint32_t delayValue) {
 -  SDL_Delay(delayValue);
 +  /* Poll the USB bridge while waiting, in 5 ms slices, the way the USB
@@ -61,7 +129,12 @@ index c9ac629e..55041910 100644
 +  do {
 +    uint32_t step = delayValue > 5 ? 5 : delayValue;
 +    usbsim_continue_loop();
++#ifdef __EMSCRIPTEN__
++    wasm_pump();
++    emscripten_sleep(step);
++#else
 +    SDL_Delay(step);
++#endif
 +    delayValue -= step;
 +  } while (delayValue > 0);
  }
@@ -315,6 +388,21 @@ index 5ba48cd5..dd86ea8c 100644
 \ No newline at end of file
 +  sim_transport_tick();
 +}
+diff --git a/simulator/lv_drivers/display/monitor.c b/simulator/lv_drivers/display/monitor.c
+index 3e1272ae..685e83fc 100644
+--- a/simulator/lv_drivers/display/monitor.c
++++ b/simulator/lv_drivers/display/monitor.c
+@@ -374,8 +374,10 @@ static void monitor_sdl_refr_core(void)
+   }
+ #endif /*MONITOR_APPLE*/
+ 
++#ifndef MONITOR_EMSCRIPTEN
+   /*Sleep some time*/
+   SDL_Delay(SDL_REFR_PERIOD);
++#endif /* Emscripten: called from BSP_DelayMs(), which already sleeps */
+ }
+ 
+ static void window_create(monitor_t *m) {
 diff --git a/simulator/testing/sim_test_wallet.c b/simulator/testing/sim_test_wallet.c
 new file mode 100644
 index 00000000..491c5304
@@ -414,10 +502,10 @@ index 00000000..fca11027
 +#endif /* SIM_TEST_WALLET_H */
 diff --git a/simulator/transport/sim_socket.c b/simulator/transport/sim_socket.c
 new file mode 100644
-index 00000000..619909f7
+index 00000000..f2175638
 --- /dev/null
 +++ b/simulator/transport/sim_socket.c
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,279 @@
 +/**
 + * @file    sim_socket.c
 + * @brief   Non-blocking TCP frame server for the X1 firmware simulator.
@@ -428,7 +516,9 @@ index 00000000..619909f7
 + * thread. Binds to 127.0.0.1 only.
 + *
 + * Builds with POSIX sockets (Linux, macOS) and Winsock (Windows / MinGW).
++ * WebAssembly builds use sim_socket_wasm.c instead (same API).
 + */
++#ifndef __EMSCRIPTEN__
 +#include "sim_socket.h"
 +
 +#include <errno.h>
@@ -693,6 +783,8 @@ index 00000000..619909f7
 +  close_listener();
 +  bound_port = 0;
 +}
++
++#endif /* __EMSCRIPTEN__ */
 diff --git a/simulator/transport/sim_socket.h b/simulator/transport/sim_socket.h
 new file mode 100644
 index 00000000..c85cea8f
@@ -772,6 +864,114 @@ index 00000000..c85cea8f
 +#endif
 +
 +#endif /* SIM_SOCKET_H */
+diff --git a/simulator/transport/sim_socket_wasm.c b/simulator/transport/sim_socket_wasm.c
+new file mode 100644
+index 00000000..b55b954b
+--- /dev/null
++++ b/simulator/transport/sim_socket_wasm.c
+@@ -0,0 +1,102 @@
++/**
++ * @file    sim_socket_wasm.c
++ * @brief   sim_socket.h for the WebAssembly build of the simulator.
++ *
++ * In a browser there is no TCP server. The page that hosts the firmware
++ * (the SDK running in the same tab) writes host-to-device bytes with
++ * sim_wasm_host_write(), and device-to-host frames are handed to the page's
++ * Module.x1OnFrame(Uint8Array) callback. Frames are the same fixed 64-byte
++ * frames as the TCP bridge, so sim_transport.c and sim_usb.c are unchanged.
++ */
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#include <string.h>
++
++#include "sim_socket.h"
++
++#define RX_CAPACITY (SIM_SOCKET_FRAME_SIZE * 512)
++
++static sim_socket_rx_cb_t on_frame = NULL;
++static uint8_t rx_buf[RX_CAPACITY];
++static size_t rx_len = 0;
++static int host_connected = 0;
++
++/* clang-format off */
++EM_JS(void, js_device_frame, (const uint8_t *ptr, int len), {
++  if (Module.x1OnFrame) Module.x1OnFrame(HEAPU8.slice(ptr, ptr + len));
++});
++/* clang-format on */
++
++/** Page to firmware: queue raw bytes (any length; split into 64-byte frames
++ * by sim_socket_poll()). Returns the number of bytes accepted. */
++EMSCRIPTEN_KEEPALIVE int sim_wasm_host_write(const uint8_t *data, int len) {
++  if (len <= 0)
++    return 0;
++  size_t room = RX_CAPACITY - rx_len;
++  size_t n = (size_t)len < room ? (size_t)len : room;
++  memcpy(rx_buf + rx_len, data, n);
++  rx_len += n;
++  host_connected = 1;
++  return (int)n;
++}
++
++/** Page tells the firmware a host attached (1) or left (0). Leaving drops
++ * any partial frame, like a USB cable pulled mid-transfer. */
++EMSCRIPTEN_KEEPALIVE void sim_wasm_host_connect(int connected) {
++  host_connected = connected ? 1 : 0;
++  if (!host_connected)
++    rx_len = 0;
++}
++
++sim_socket_status_t sim_socket_init(uint16_t port, sim_socket_rx_cb_t rx_cb) {
++  (void)port;
++  on_frame = rx_cb;
++  rx_len = 0;
++  return SIM_SOCKET_OK;
++}
++
++void sim_socket_poll(void) {
++  size_t off = 0;
++  while (rx_len - off >= SIM_SOCKET_FRAME_SIZE) {
++    uint8_t frame[SIM_SOCKET_FRAME_SIZE];
++    memcpy(frame, rx_buf + off, SIM_SOCKET_FRAME_SIZE);
++    off += SIM_SOCKET_FRAME_SIZE;
++    if (on_frame)
++      on_frame(frame, SIM_SOCKET_FRAME_SIZE);
++  }
++  if (off > 0) {
++    memmove(rx_buf, rx_buf + off, rx_len - off);
++    rx_len -= off;
++  }
++}
++
++sim_socket_status_t sim_socket_send(const uint8_t *data, size_t len) {
++  if (!host_connected)
++    return SIM_SOCKET_ERR_NOT_CONNECTED;
++  size_t off = 0;
++  do {
++    uint8_t frame[SIM_SOCKET_FRAME_SIZE] = {0};
++    size_t n = len - off < SIM_SOCKET_FRAME_SIZE ? len - off
++                                                 : SIM_SOCKET_FRAME_SIZE;
++    if (n > 0)
++      memcpy(frame, data + off, n);
++    js_device_frame(frame, SIM_SOCKET_FRAME_SIZE);
++    off += n;
++  } while (off < len);
++  return SIM_SOCKET_OK;
++}
++
++int sim_socket_is_connected(void) {
++  return host_connected;
++}
++
++uint16_t sim_socket_port(void) {
++  return 0;
++}
++
++void sim_socket_deinit(void) {
++  host_connected = 0;
++  rx_len = 0;
++}
++
++#endif /* __EMSCRIPTEN__ */
 diff --git a/simulator/transport/sim_transport.c b/simulator/transport/sim_transport.c
 new file mode 100644
 index 00000000..0fe12a2a
@@ -979,10 +1179,27 @@ index 2f4293d1..ed26315f 100644
    if (mnemonic == NULL || !mnemonic_check(mnemonic)) {
      mnemonic_clear();
 diff --git a/utilities/cmake/simulator/simulator.cmake b/utilities/cmake/simulator/simulator.cmake
-index aecc843d..b219f61c 100644
+index aecc843d..16fc26f3 100644
 --- a/utilities/cmake/simulator/simulator.cmake
 +++ b/utilities/cmake/simulator/simulator.cmake
-@@ -150,6 +150,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
+@@ -18,8 +18,14 @@ ENDIF(DEV_SWITCH)
+ 
+ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+ set(EXECUTABLE ${PROJECT_NAME})
+-find_package(SDL2 REQUIRED SDL2)
+-include_directories(${SDL2_INCLUDE_DIRS})
++if(EMSCRIPTEN)
++    # WebAssembly build (emcmake cmake ...): Emscripten's own SDL2 port.
++    add_compile_options(-sUSE_SDL=2)
++    set(CMAKE_EXECUTABLE_SUFFIX ".js")
++else()
++    find_package(SDL2 REQUIRED SDL2)
++    include_directories(${SDL2_INCLUDE_DIRS})
++endif()
+ 
+ add_executable(${EXECUTABLE} ${SOURCES} ${CMAKE_CURRENT_BINARY_DIR}/version.c ${MINI_GMP_SRCS} ${POSEIDON_SRCS} ${PROTO_SRCS} ${PROTO_HDRS} ${INCLUDES})
+ 
+@@ -150,6 +156,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
          simulator/lv_drivers/indev
          simulator/porting
          simulator/USB
@@ -990,12 +1207,42 @@ index aecc843d..b219f61c 100644
  
          #unit test framework
          $<$<BOOL:UNIT_TESTS_SWITCH>:${PROJECT_SOURCE_DIR}/tests/framework/unity>
-@@ -183,5 +184,27 @@ IF(UNIT_TESTS_SWITCH)
+@@ -182,6 +189,56 @@ IF(UNIT_TESTS_SWITCH)
+         target_compile_options(${EXECUTABLE} PRIVATE --coverage -g -O0)
          target_link_libraries(${EXECUTABLE} PRIVATE -lgcov )
  ENDIF(UNIT_TESTS_SWITCH)
- target_link_libraries(${EXECUTABLE} PRIVATE ${SDL2_LIBRARIES} -lm)
+-target_link_libraries(${EXECUTABLE} PRIVATE ${SDL2_LIBRARIES} -lm)
++if(EMSCRIPTEN)
++    # The firmware's main loop never returns; Asyncify lets emscripten_sleep()
++    # in BSP_DelayMs() yield to the browser. The page loads it with
++    # createX1Simulator({ canvas, x1OnFrame, ... }) and talks to it through
++    # sim_wasm_host_write() (simulator/transport/sim_socket_wasm.c).
++    target_compile_options(${EXECUTABLE} PRIVATE
++        -Wno-error=implicit-function-declaration
++        -Wno-error=int-conversion
++        -Wno-error=incompatible-pointer-types
++        -Wno-error=incompatible-function-pointer-types
++        -Wno-error=return-type)
++    target_link_options(${EXECUTABLE} PRIVATE
++        -sUSE_SDL=2
++        -sASYNCIFY
++        -sASYNCIFY_STACK_SIZE=65536
++        -sSTACK_SIZE=1048576
++        -sALLOW_MEMORY_GROWTH
++        -sINITIAL_MEMORY=67108864
++        -sMODULARIZE
++        -sEXPORT_ES6
++        -sEXPORT_NAME=createX1Simulator
++        -sENVIRONMENT=web
++        -sEXIT_RUNTIME=0
++        "-sEXPORTED_FUNCTIONS=_main,_malloc,_free,_sim_wasm_host_write,_sim_wasm_host_connect"
++        "-sEXPORTED_RUNTIME_METHODS=ENV,HEAPU8")
++    target_link_libraries(${EXECUTABLE} PRIVATE -lm)
++else()
++    target_link_libraries(${EXECUTABLE} PRIVATE ${SDL2_LIBRARIES} -lm)
++endif()
 +# simulator/transport/sim_socket.c uses Winsock on Windows
-+if(WIN32)
++if(WIN32 AND NOT EMSCRIPTEN)
 +    target_link_libraries(${EXECUTABLE} PRIVATE ws2_32)
 +endif()
 +# Stack protector everywhere (Ubuntu's gcc enables it by default; MinGW does

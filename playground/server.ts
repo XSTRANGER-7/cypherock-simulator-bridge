@@ -18,11 +18,11 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { ethers } from 'ethers';
 import { DeviceConnection } from '../packages/hw-simulator/src';
-import { describeFrame, encodePacket, PACKET_TYPE } from '../examples/lib/packets';
-import { decodeVarintFields, IDLE_STATE_NAMES, waitIdle } from '../examples/lib/status';
-import { hex, loadApp, loadManagerApp } from '../examples/lib/sdk';
+import { describeFrame } from '../examples/lib/packets';
+import { waitIdle } from '../examples/lib/status';
+import { loadApp } from '../examples/lib/sdk';
+import { BTC, COINS, createOps, DEFAULT_TEST_MNEMONIC, EVM_CHAINS, hex, type Params } from './ops';
 
 const ROOT = path.resolve(__dirname, '..');
 const HOST = process.env.PLAYGROUND_HOST ?? '127.0.0.1';
@@ -31,11 +31,9 @@ const SIM_PORT = Number(process.env.CYPHEROCK_SIM_PORT ?? 52640);
 const STATE_DIR = process.env.SIM_STATE_DIR ?? path.join(ROOT, '.sim-state');
 const SDK_DIR = process.env.SDK_DIR ?? path.resolve(ROOT, '../sdk');
 const FIRMWARE_DIR = process.env.FIRMWARE_DIR ?? path.resolve(ROOT, '../x1_wallet_firmware');
-const MNEMONIC =
-  process.env.CYPHEROCK_SIM_TEST_MNEMONIC ?? 'test test test test test test test test test test test junk';
+const MNEMONIC = process.env.CYPHEROCK_SIM_TEST_MNEMONIC ?? DEFAULT_TEST_MNEMONIC;
 const ALLOW_ANY_HOST = process.env.PLAYGROUND_ALLOW_ANY_HOST === '1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const H = 0x80000000;
 
 // ---------------------------------------------------------------- events (SSE)
 const clients = new Set<http.ServerResponse>();
@@ -124,13 +122,12 @@ async function resetSimulator(): Promise<string> {
   if (fs.existsSync(STATE_DIR)) {
     for (const f of fs.readdirSync(STATE_DIR)) fs.rmSync(path.join(STATE_DIR, f), { force: true, recursive: true });
   }
-  walletId = undefined;
+  ops.forgetWallet();
   return `wiped ${STATE_DIR}; ${await startSimulator()}`;
 }
 
 // ------------------------------------------------------------------ connection
 let conn: DeviceConnection | undefined;
-let walletId: Uint8Array | undefined;
 
 async function connection(): Promise<DeviceConnection> {
   if (conn && (await conn.isConnected())) return conn;
@@ -156,193 +153,18 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function recover() {
-  try {
-    await loadApp('core').SDK.sendAbort(await connection());
-  } catch {
-    /* nothing running */
-  }
-  const c = await connection();
-  for (let i = 0; i < 200 && (await c.receive()); i += 1) {
-    /* drain */
-  }
-  await waitIdle(c, { timeoutMs: 20000 });
-}
-
 const timeout = <T>(p: Promise<T>, ms: number) =>
   Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms / 1000} s`)), ms))]);
 
-const appModule = (folder: string, mod: string) => require(path.join(SDK_DIR, 'packages', folder, 'node_modules', mod));
-const evmExpected = (p: string) => ethers.HDNodeWallet.fromPhrase(MNEMONIC, undefined, p).address;
-const sig0x = (s: string) => (s.startsWith('0x') ? s : `0x${s}`);
+// ------------------------------------------------------------------ operations (playground/ops.ts)
+const ops = createOps({
+  mnemonic: MNEMONIC,
+  connection,
+  app: async (folder) => loadApp(folder),
+  lib: async (folder, name) => require(path.join(SDK_DIR, 'packages', folder, 'node_modules', name)),
+});
+const { OPS, recover } = ops;
 
-async function simtest(): Promise<Uint8Array> {
-  if (walletId) return walletId;
-  const m = await loadManagerApp().create(await connection());
-  const { walletList } = await m.getWallets();
-  const w = walletList.find((x: any) => x.name === 'SIMTEST');
-  if (!w) throw new Error('SIMTEST wallet not found (the simulator must be started with CYPHEROCK_SIM_TEST_MNEMONIC)');
-  walletId = w.id;
-  return w.id;
-}
-
-function evm() {
-  const mod = loadApp('app-evm');
-  mod.setEthersLib(ethers);
-  return mod;
-}
-
-const COINS: Record<string, { folder: string; cls: string; path: number[]; setup?: (m: any) => void }> = {
-  solana: { folder: 'app-solana', cls: 'SolanaApp', path: [44 + H, 501 + H, H] },
-  near: { folder: 'app-near', cls: 'NearApp', path: [44 + H, 397 + H, H, H, 1 + H] },
-  tron: {
-    folder: 'app-tron',
-    cls: 'TronApp',
-    path: [44 + H, 195 + H, H, 0, 0],
-    setup: (m) => {
-      const tw = appModule('app-tron', 'tronweb');
-      const TronWeb = tw.TronWeb ?? tw.default ?? tw;
-      m.setTronWeb(new TronWeb({ fullHost: 'http://127.0.0.1:9' }));
-    },
-  },
-  xrp: { folder: 'app-xrp', cls: 'XrpApp', path: [44 + H, 144 + H, H, 0, 0], setup: (m) => m.setXrpLib(appModule('app-xrp', 'xrpl')) },
-  starknet: { folder: 'app-starknet', cls: 'StarknetApp', path: [0xa55 + H, 0x4741e9c9 + H, 0x447a6028 + H, H, H, 0] },
-  icp: { folder: 'app-icp', cls: 'IcpApp', path: [44 + H, 223 + H, H, 0, 0] },
-  stellar: { folder: 'app-stellar', cls: 'StellarApp', path: [44 + H, 148 + H, H], setup: (m) => m.setStellarLib(appModule('app-stellar', 'stellar-sdk')) },
-  constellation: { folder: 'app-constellation', cls: 'ConstellationApp', path: [44 + H, 1137 + H, H, 0, 0], setup: (m) => m.setDag4Lib(appModule('app-constellation', '@stardust-collective/dag4')) },
-  sia: { folder: 'app-sia', cls: 'SiaApp', path: [0] },
-  canton: { folder: 'app-canton', cls: 'CantonApp', path: [44 + H, 6767 + H, H, H, H], setup: (m) => m.setCantonLib(appModule('app-canton', '@canton-network/core-ledger-proto')) },
-};
-const BTC: Record<string, [number, number]> = { btc: [44, 0], 'btc-segwit': [84, 0], ltc: [44, 2], doge: [44, 3], dash: [44, 5] };
-
-// ------------------------------------------------------------------ operations
-type Params = Record<string, any>;
-const OPS: Record<string, (p: Params) => Promise<unknown>> = {
-  async 'raw-status'() {
-    // One STATUS_REQ packet straight onto the wire (no SDK), and the exact reply bytes.
-    const c = await connection();
-    for (let i = 0; i < 200 && (await c.receive()); i += 1) {
-      /* drop stale frames */
-    }
-    const request = encodePacket({ type: PACKET_TYPE.STATUS_REQ, sequence: 0xffff });
-    await c.send(request);
-    let reply: Uint8Array | undefined;
-    for (let i = 0; i < 1500 && !reply; i += 1) {
-      const f = await c.receive();
-      if (f && f[0] === 0x55 && f[10] === PACKET_TYPE.STATUS) reply = f;
-      else if (!f) await new Promise((r) => setTimeout(r, 2));
-    }
-    if (!reply) throw new Error('no STATUS reply');
-    const replyPacket = reply.subarray(0, 16 + reply[15]);
-    const payload = reply.subarray(16, 16 + reply[15]);
-    const status = decodeVarintFields(payload.subarray(4, 4 + ((payload[0] << 8) | payload[1])));
-    return {
-      requestHex: hex(request),
-      replyHex: hex(replyPacket),
-      request: describeFrame(request),
-      reply: describeFrame(reply),
-      status,
-      idle: IDLE_STATE_NAMES[status?.[2] ?? 0],
-    };
-  },
-  async 'device-info'() {
-    const m = await loadManagerApp().create(await connection());
-    return { sdkVersion: m.getSDKVersion(), ...(await m.getDeviceInfo()) };
-  },
-  async wallets() {
-    const m = await loadManagerApp().create(await connection());
-    return m.getWallets();
-  },
-  async 'eth-address'(p) {
-    const chainId = Number(p.chainId ?? 1);
-    const index = Number(p.index ?? 0);
-    const derivation = `m/44'/60'/0'/0/${index}`;
-    const app = await evm().EvmApp.create(await connection());
-    const r = await app.getPublicKeys({ walletId: await simtest(), derivationPaths: [{ path: [44 + H, 60 + H, H, 0, index] }], chainId });
-    const expected = evmExpected(derivation);
-    return { chainId, derivation, address: r.addresses[0], publicKey: r.publicKeys[0], verified: r.addresses[0].toLowerCase() === expected.toLowerCase(), expectedFromMnemonic: expected };
-  },
-  async 'sign-tx'(p) {
-    const chainId = Number(p.chainId ?? 1);
-    const unsigned = ethers.Transaction.from({
-      type: 2,
-      chainId,
-      nonce: Number(p.nonce ?? 0),
-      gasLimit: 21000,
-      to: p.to || '0x000000000000000000000000000000000000dEaD',
-      value: ethers.parseEther(String(p.valueEth ?? '0.001')),
-      maxFeePerGas: ethers.parseUnits('30', 'gwei'),
-      maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
-    }).unsignedSerialized;
-    const app = await evm().EvmApp.create(await connection());
-    const r = await app.signTxn({ walletId: await simtest(), derivationPath: [44 + H, 60 + H, H, 0, 0], txn: unsigned, serializeTxn: true });
-    const signed = sig0x(r.serializedTxn);
-    const from = ethers.Transaction.from(signed).from ?? '';
-    const expected = evmExpected("m/44'/60'/0'/0/0");
-    return { chainId, unsigned, signature: r.signature, signed, recoveredSigner: from, verified: from.toLowerCase() === expected.toLowerCase(), note: 'Never broadcast: test mnemonic' };
-  },
-  async 'sign-message'(p) {
-    const text = String(p.text ?? 'Hello from the Cypherock X1 simulator');
-    const app = await evm().EvmApp.create(await connection());
-    const r = await app.signPersonalMsg({ walletId: await simtest(), derivationPath: [44 + H, 60 + H, H, 0, 0], message: ethers.hexlify(ethers.toUtf8Bytes(text)).slice(2) });
-    const signer = ethers.verifyMessage(text, sig0x(r.serializedSignature));
-    return { text, signature: sig0x(r.serializedSignature), recoveredSigner: signer, verified: signer.toLowerCase() === evmExpected("m/44'/60'/0'/0/0").toLowerCase() };
-  },
-  async 'sign-typed-data'() {
-    const domain = { name: 'Ether Mail', version: '1', chainId: 1, verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC' };
-    const types = {
-      Person: [{ name: 'name', type: 'string' }, { name: 'wallet', type: 'address' }],
-      Mail: [{ name: 'from', type: 'Person' }, { name: 'to', type: 'Person' }, { name: 'contents', type: 'string' }],
-    };
-    const message = {
-      from: { name: 'Cow', wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826' },
-      to: { name: 'Bob', wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB' },
-      contents: 'Hello, Bob!',
-    };
-    const typed = {
-      domain,
-      types: {
-        EIP712Domain: [
-          { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
-          { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
-        ],
-        ...types,
-      },
-      primaryType: 'Mail',
-      message,
-    };
-    const app = await evm().EvmApp.create(await connection());
-    const r = await app.signTypedMsg({ walletId: await simtest(), derivationPath: [44 + H, 60 + H, H, 0, 0], message: typed });
-    const signer = ethers.verifyTypedData(domain, types, message, sig0x(r.serializedSignature));
-    return { typedData: typed, signature: sig0x(r.serializedSignature), recoveredSigner: signer, verified: signer.toLowerCase() === evmExpected("m/44'/60'/0'/0/0").toLowerCase() };
-  },
-  async 'btc-xpub'(p) {
-    const coin = String(p.coin ?? 'btc');
-    const [purpose, coinType] = BTC[coin] ?? BTC.btc;
-    const mod = loadApp('app-btc');
-    mod.setBitcoinJSLib(appModule('app-btc', 'bitcoinjs-lib'));
-    const app = await mod.BtcApp.create(await connection());
-    const r = await app.getXpubs({ walletId: await simtest(), derivationPaths: [{ path: [purpose + H, coinType + H, H] }] });
-    const out: Record<string, unknown> = { coin, derivation: `m/${purpose}'/${coinType}'/0'`, xpub: r.xpubs[0] };
-    if (coin === 'btc') {
-      const expected = ethers.HDNodeWallet.fromPhrase(MNEMONIC, undefined, "m/44'/0'/0'").neuter().extendedKey;
-      out.verified = expected === r.xpubs[0];
-    }
-    return out;
-  },
-  async 'coin-key'(p) {
-    const name = String(p.coin ?? 'solana');
-    const c = COINS[name];
-    if (!c) throw new Error(`unknown coin ${name}`);
-    const mod = loadApp(c.folder);
-    c.setup?.(mod);
-    const app = await mod[c.cls].create(await connection());
-    const r = await app.getPublicKeys({ walletId: await simtest(), derivationPaths: [{ path: c.path }] });
-    return { coin: name, path: c.path.map((n) => (n >= H ? `${n - H}'` : String(n))).join('/'), ...r };
-  },
-};
-
-// ------------------------------------------------------------------- HTTP server
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 
 function send(res: http.ServerResponse, status: number, body: unknown) {
@@ -391,7 +213,7 @@ const server = http.createServer(async (req, res) => {
       binary: simulatorBinary(),
       testMnemonic: MNEMONIC,
       operations: Object.keys(OPS),
-      coins: { evm: [1, 137, 56, 250, 43114, 10, 42161, 8453, 999], btc: Object.keys(BTC), other: Object.keys(COINS) },
+      coins: { evm: EVM_CHAINS, btc: Object.keys(BTC), other: Object.keys(COINS) },
     });
     return;
   }

@@ -58,7 +58,13 @@ function saveState() {
 }
 
 // ------------------------------------------------------------------ API
+// In the GitHub Pages build (web/), the firmware runs in this tab as
+// WebAssembly and window.X1Local answers the same API without a server.
+const LOCAL = window.X1Local;
+const BROWSER = !!LOCAL;
+
 async function api(path, body) {
+  if (LOCAL) return LOCAL.request(path, body);
   const res = await fetch(path, {
     method: body === undefined ? 'GET' : 'POST',
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
@@ -77,10 +83,16 @@ const LEVELS = [
   {
     id: 'power', icon: '⏻', title: 'Power On', xp: 50,
     goal: 'Boot the X1 firmware on your computer and open the bridge.',
-    why: 'The simulator is the real X1 firmware compiled for a PC. Our bridge replaces the USB cable with a local socket (127.0.0.1:52640), so the SDK can reach it.',
+    why: BROWSER
+      ? 'This is the real X1 firmware, compiled to WebAssembly and running inside this browser tab. Our bridge replaces the USB cable with an in-page channel carrying the same 64-byte frames, so the SDK (also running in this tab) can reach it.'
+      : 'The simulator is the real X1 firmware compiled for a PC. Our bridge replaces the USB cable with a local socket (127.0.0.1:52640), so the SDK can reach it.',
     use: 'Developers and CI can test wallet apps against real firmware code without plugging in a device.',
-    hood: 'The playground starts bin/Cypherock_Simulator. During application_init() the firmware opens the TCP bridge; then it shows the boot logo (busy) and lands on the main menu (idle). We poll STATUS packets until device_idle_state becomes IDLE five times in a row.',
-    steps: ['Start the firmware process', 'Bridge socket opens on :52640', 'Firmware boots (logo)', 'Main menu: idle and ready'],
+    hood: BROWSER
+      ? 'The page loads x1/Cypherock_Simulator.wasm (the firmware built with Emscripten). During application_init() the firmware opens the bridge; then it shows the boot logo (busy) and lands on the main menu (idle). Its wait loop (BSP_DelayMs) yields to the browser every 5 ms. We poll STATUS packets until device_idle_state becomes IDLE five times in a row.'
+      : 'The playground starts bin/Cypherock_Simulator. During application_init() the firmware opens the TCP bridge; then it shows the boot logo (busy) and lands on the main menu (idle). We poll STATUS packets until device_idle_state becomes IDLE five times in a row.',
+    steps: BROWSER
+      ? ['Load the firmware (WebAssembly)', 'In-page bridge opens', 'Firmware boots (logo)', 'Main menu: idle and ready']
+      : ['Start the firmware process', 'Bridge socket opens on :52640', 'Firmware boots (logo)', 'Main menu: idle and ready'],
     action: 'Power on the simulator',
     async run(ctx) {
       ctx.step(0);
@@ -90,8 +102,8 @@ const LEVELS = [
       return { message: r.message };
     },
     checks: (r) => [
-      { ok: true, label: 'Simulator process is running', detail: r.message },
-      { ok: simRunning, label: 'Bridge reachable on 127.0.0.1:52640' },
+      { ok: true, label: BROWSER ? 'Firmware is running in this tab' : 'Simulator process is running', detail: r.message },
+      { ok: simRunning, label: BROWSER ? 'In-page bridge connected' : 'Bridge reachable on 127.0.0.1:52640' },
     ],
     reveal(r, box) {
       const p = panel(box, 'Boot sequence');
@@ -960,6 +972,14 @@ async function refreshState() {
 }
 
 function connectEvents() {
+  if (LOCAL) {
+    LOCAL.subscribe((type, data) => {
+      if (type === 'frame') onFrame(data);
+      else if (type === 'log') logLine(data.text);
+      else if (type === 'state') refreshState();
+    });
+    return;
+  }
   const es = new EventSource('/api/events');
   es.addEventListener('frame', (e) => onFrame(JSON.parse(e.data)));
   es.addEventListener('log', (e) => logLine(JSON.parse(e.data).text));

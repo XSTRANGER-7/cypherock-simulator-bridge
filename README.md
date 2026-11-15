@@ -34,6 +34,8 @@ Full outputs and the frame-by-frame trace are in [docs/notes/](docs/notes).
 
 ## Play it: X1 Quest
 
+**Play online, nothing to install: https://xstranger-7.github.io/cypherock-simulator-bridge/**. Cypherock's X1 firmware, compiled to WebAssembly, boots inside your browser tab next to the SDK: no server, and every visitor gets their own private device. GitHub Actions builds it from upstream + the patches, plays all 11 levels in headless Chrome, then publishes it ([how it works](docs/deploy.md)).
+
 A guided, game-style playground. Each level is one real SDK call against the real firmware: it tells you **what** you are doing, **why** it matters, **where it is used** in real wallets, shows the steps advancing on real packets, animates the result, and runs **real test checks** on it.
 
 ![X1 Quest: signing level](docs/notes/game-level5-sign.png)
@@ -183,7 +185,7 @@ CYPHEROCK_SIM=1 ./scripts/run-tests.sh    # all test layers
 
 ## Documentation
 
-- [Testing: every way](docs/testing.md) · [Architecture](docs/architecture.md) · [Setup: Linux and Windows](docs/setup.md) · [Wire protocol](docs/protocol.md)
+- [Testing: every way](docs/testing.md) · [Deploy: the browser build](docs/deploy.md) · [Architecture](docs/architecture.md) · [Setup: Linux and Windows](docs/setup.md) · [Wire protocol](docs/protocol.md)
 - [Limitations and safety](docs/limitations.md) · [Upstream PR plan](docs/upstream-prs.md) · [Troubleshooting](docs/troubleshooting.md)
 
 ## Safety

@@ -1,0 +1,113 @@
+name: Deploy X1 Quest (GitHub Pages)
+
+# Builds the static, serverless X1 Quest: Cypherock's X1 firmware (upstream +
+# firmware-patch) compiled to WebAssembly with Emscripten, the Cypherock SDK
+# (upstream + sdk-patch) bundled for the browser, and the game. Plays all 11
+# levels in headless Chrome before publishing to GitHub Pages.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  FIRMWARE_REF: '5b11739d'   # quoted: unquoted SHAs can parse as YAML numbers
+  SDK_REF: '4e44158'
+  SDK_APPS: manager evm btc solana near tron xrp starknet icp stellar constellation sia canton
+  EMSDK_VERSION: '7.0.0'
+
+jobs:
+  build:
+    name: Build and test the static site
+    runs-on: ubuntu-22.04
+    env:
+      FIRMWARE_DIR: ${{ github.workspace }}/../x1_wallet_firmware
+      SDK_DIR: ${{ github.workspace }}/../sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build unzip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install wheel protobuf grpcio-tools==1.47.0 "setuptools<81"
+      - name: protoc 24.4
+        run: |
+          curl -sSLO https://github.com/protocolbuffers/protobuf/releases/download/v24.4/protoc-24.4-linux-x86_64.zip
+          sudo unzip -o protoc-24.4-linux-x86_64.zip -d /usr/local bin/protoc 'include/*'
+      - name: Emscripten ${{ env.EMSDK_VERSION }}
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Firmware to WebAssembly (upstream + firmware-patch)
+        run: |
+          git clone https://github.com/Cypherock/x1_wallet_firmware.git "$FIRMWARE_DIR"
+          cd "$FIRMWARE_DIR"
+          git checkout "$FIRMWARE_REF"
+          git submodule update --init --recursive
+          git apply "$GITHUB_WORKSPACE/firmware-patch/x1_wallet_firmware.patch"
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          "$GITHUB_WORKSPACE/scripts/ci-run.sh" "Firmware (WebAssembly)" bash -c '
+            emcmake cmake -S . -B build-wasm -G Ninja \
+              -DCMAKE_BUILD_PLATFORM:STRING=Simulator -DFIRMWARE_TYPE=Main \
+              -DCMAKE_BUILD_TYPE:STRING=MinSizeRel -DDEV_SWITCH=ON -DUNIT_TESTS_SWITCH:BOOL=OFF &&
+            cmake --build build-wasm -j"$(nproc)"'
+          ls -la bin/Cypherock_Simulator.js bin/Cypherock_Simulator.wasm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm i -g pnpm@8.6.0
+      - name: SDK (upstream + sdk-patch)
+        run: |
+          git clone https://github.com/Cypherock/sdk.git "$SDK_DIR"
+          cd "$SDK_DIR"
+          git checkout "$SDK_REF"
+          git submodule update --init --recursive
+          git apply "$GITHUB_WORKSPACE/sdk-patch/sdk.patch"
+          F=""
+          for a in $SDK_APPS; do F="$F --filter=@cypherock/sdk-app-$a..."; done
+          pnpm install $F
+          pnpm exec turbo run build --no-daemon $F
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # the browser test uses Node's built-in WebSocket
+      - run: npm ci
+      - name: Bundle the site
+        run: node web/build.mjs
+      - name: Play all 11 levels in headless Chrome
+        run: |
+          node web/serve.mjs dist-web 8090 > serve.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8090/ >/dev/null && break; sleep 1; done
+          BROWSER=$(command -v google-chrome || command -v chromium) UI_SHOT_PREFIX=web- \
+            ./scripts/ci-run.sh "Browser playthrough" npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

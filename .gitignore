@@ -6,3 +6,5 @@ firmware-patch/build/
 *.tsbuildinfo
 .DS_Store
 .sim-state/
+dist-web/
+serve.log

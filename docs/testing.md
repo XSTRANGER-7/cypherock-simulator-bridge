@@ -1,9 +1,10 @@
 # Testing: every way to try it
 
-Seven ways to test, from "no compiler" to "full CI". Each one says what it proves. All results below are from Nov 15, 2026 (firmware `5b11739d` + bridge patch, SDK `4e44158` + `hw-simulator`).
+Eight ways to test, from "just a browser" to "full CI". Each one says what it proves. All results below are from Nov 15, 2026 (firmware `5b11739d` + bridge patch, SDK `4e44158` + `hw-simulator`).
 
 | # | Way | Needs | What it proves | Command | Last result |
 | --- | --- | --- | --- | --- | --- |
+| 0 | Online (GitHub Pages) | A browser | The real firmware (WebAssembly) and SDK run in your tab, no install | Open https://xstranger-7.github.io/cypherock-simulator-bridge/ | 11/11 levels in headless Chrome before every deploy ([how](deploy.md)) |
 | 1 | Docker playground | Docker | Anyone can try real SDK calls in a browser | `docker run --rm -p 127.0.0.1:3000:3000 x1-sim-playground` | Built and smoke-tested in CI (`docker` job) |
 | 2 | Web playground: X1 Quest game (local) | Built simulator + SDK | Same, on your machine, guided level by level | `npm run playground:web` | 11/11 levels in a headless browser; API smoke 33/33 |
 | 3 | Example scripts | Built simulator + SDK | One SDK call each, with output you can paste | `npx tsx examples/<name>.ts` | All pass ([outputs](notes/)) |
@@ -14,7 +15,11 @@ Seven ways to test, from "no compiler" to "full CI". Each one says what it prove
 
 Plus a browser test of the game itself: `npx tsx tools/playground-ui-test.ts` (headless Edge/Chrome plays all 11 levels, fails on any red check, saves screenshots in [notes/](notes/)).
 
-## 1. Docker (easiest, any OS with Docker)
+## 0. Online (nothing to install)
+
+Open https://xstranger-7.github.io/cypherock-simulator-bridge/ and press **Power on** in level 0. The firmware boots in your tab in a few seconds, and its real screen appears above the live wire. Reloading the page gives a fresh device. Build and test it locally with `npm run web:build`, `npm run web:serve` and `UI_SHOT_PREFIX=web- npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/` (see [deploy.md](deploy.md)).
+
+## 1. Docker (any OS with Docker)
 
 ```bash
 git clone https://github.com/XSTRANGER-7/cypherock-simulator-bridge.git
@@ -92,4 +97,4 @@ CYPHEROCK_SIM=1 CYPHEROCK_SIM_TEST_MNEMONIC="test test test test test test test 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push: the bridge job (typecheck, C unit tests, transport, TS <-> C), the simulator job (builds upstream + patches on Ubuntu 22.04; layers 1-4, every example, the capability matrix in the job summary, the playground smoke test) and the Docker job (builds the image, starts it, drives the playground from outside).
+`.github/workflows/ci.yml` runs on every push: the bridge job (typecheck, C unit tests, transport, TS <-> C), the simulator job (builds upstream + patches on Ubuntu 22.04; layers 1-4, every example, the capability matrix in the job summary, the playground smoke test) and the Docker job (builds the image, starts it, drives the playground from outside). `.github/workflows/pages.yml` builds the browser version (firmware to WebAssembly, SDK bundled), plays all 11 levels in headless Chrome and publishes it to GitHub Pages.

@@ -5,6 +5,7 @@
  *
  *   npm run playground:web      (simulator running or started from the page)
  *   npx tsx tools/playground-ui-test.ts [baseUrl]
+ *   UI_SHOT_PREFIX=web- npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/   (browser build)
  *
  * Browser: $BROWSER, else Edge or Chrome in their default locations.
  * Needs Node 22+ (built-in WebSocket).
@@ -60,6 +61,12 @@ async function main() {
     const pending = new Map<number, (v: any) => void>();
     ws.onmessage = (e) => {
       const msg = JSON.parse(String(e.data));
+      if (msg.method === 'Runtime.exceptionThrown') {
+        const d = msg.params.exceptionDetails;
+        console.log(`[page exception] ${d.exception?.description ?? d.text}`);
+      } else if (msg.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(msg.params.type)) {
+        console.log(`[page ${msg.params.type}] ${msg.params.args.map((a: any) => a.value ?? a.description ?? '').join(' ')}`);
+      }
       if (msg.id && pending.has(msg.id)) {
         pending.get(msg.id)!(msg);
         pending.delete(msg.id);
@@ -85,13 +92,14 @@ async function main() {
 
     const shoot = async (file: string) => {
       const shot = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-      const out = path.join(path.dirname(OUT), file);
+      const out = path.join(path.dirname(OUT), `${process.env.UI_SHOT_PREFIX ?? ''}${file}`);
       fs.mkdirSync(path.dirname(out), { recursive: true });
       fs.writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
       console.log(`screenshot: ${out}`);
     };
 
     await cdp('Page.enable');
+    await cdp('Runtime.enable');
     await waitFor(`document.readyState === 'complete' && !!document.querySelector('.lvl-node')`, 15000, 'page load');
     console.log(`page loaded: ${await js(`document.querySelector('#sim-text').textContent`)}`);
 
