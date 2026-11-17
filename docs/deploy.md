@@ -1,6 +1,15 @@
 # Deploy: X1 Quest in the browser (GitHub Pages)
 
-**Live:** https://xstranger-7.github.io/cypherock-simulator-bridge/
+**Live:** https://xstranger-7.github.io/cypherock-simulator-bridge/ (product page) · https://xstranger-7.github.io/cypherock-simulator-bridge/play/ (X1 Quest)
+
+The site has two parts:
+
+| Path | What | Source |
+| --- | --- | --- |
+| `/` | Product page: what the bridge is, how it works, quick start, test results | `site/` (static HTML, CSS, a little JS; no build step) |
+| `/play/` | X1 Quest, the serverless playground | `playground/public/` + `web/src/` + the firmware `.wasm` |
+
+Both use the same dark theme and self-hosted fonts (Inter, Sora, JetBrains Mono, SIL Open Font License, in `playground/public/fonts/`). The product page loads them from `play/fonts/`, so they download once.
 
 The hosted playground needs no server. Cypherock's X1 firmware is compiled to WebAssembly and runs inside the visitor's browser tab, next to the Cypherock SDK. Every visitor gets their own private simulator. GitHub Pages only serves static files, so hosting is free and never sleeps.
 
@@ -55,9 +64,9 @@ cmake --build build-wasm         # -> bin/Cypherock_Simulator.js + .wasm (about 
 # 3. Bundle and serve
 cd ../cypherock-simulator-bridge
 npm ci
-npm run web:build                # -> dist-web/
-npm run web:serve                # http://127.0.0.1:8090/
-UI_SHOT_PREFIX=web- npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/   # plays all 11 levels
+npm run web:build                # -> dist-web/ (product page) + dist-web/play/ (X1 Quest)
+npm run web:serve                # http://127.0.0.1:8090/ and http://127.0.0.1:8090/play/
+UI_SHOT_PREFIX=web- npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/play/   # plays all 11 levels
 ```
 
 `web/build.mjs` reads `SDK_DIR` (default `../sdk`) and `FIRMWARE_WASM` (default `../x1_wallet_firmware/bin`).
@@ -70,8 +79,8 @@ The bundle loads in pieces. The page and the first level need about 400 KB of JS
 
 1. Builds the firmware: clones Cypherock's upstream at `5b11739d`, applies `firmware-patch/`, compiles to WebAssembly with Emscripten 7.0.0.
 2. Builds the SDK: clones upstream at `4e44158`, applies `sdk-patch/`, builds the 13 SDK apps with pnpm and turbo.
-3. Bundles the site with esbuild (`web/build.mjs`).
-4. Starts the site on a local static server and plays all 11 levels in headless Chrome (`tools/playground-ui-test.ts`). A red check fails the job, and nothing is published.
+3. Bundles the site with esbuild (`web/build.mjs`): the product page at the root, X1 Quest under `play/`.
+4. Starts the site on a local static server, checks that every local link on the product page answers, and plays all 11 levels of `play/` in headless Chrome (`tools/playground-ui-test.ts`). A broken link or a red check fails the job, and nothing is published.
 5. Uploads `dist-web/` and publishes it with `actions/deploy-pages`.
 
 One-time setup: repository Settings → Pages → Source: **GitHub Actions**.

@@ -4,7 +4,7 @@ Eight ways to test, from "just a browser" to "full CI". Each one says what it pr
 
 | # | Way | Needs | What it proves | Command | Last result |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Online (GitHub Pages) | A browser | The real firmware (WebAssembly) and SDK run in your tab, no install | Open https://xstranger-7.github.io/cypherock-simulator-bridge/ | 11/11 levels in headless Chrome before every deploy ([how](deploy.md)) |
+| 0 | Online (GitHub Pages) | A browser | The real firmware (WebAssembly) and SDK run in your tab, no install | Open https://xstranger-7.github.io/cypherock-simulator-bridge/play/ | 11/11 levels in headless Chrome before every deploy ([how](deploy.md)) |
 | 1 | Docker playground | Docker | Anyone can try real SDK calls in a browser | `docker run --rm -p 127.0.0.1:3000:3000 x1-sim-playground` | Built and smoke-tested in CI (`docker` job) |
 | 2 | Web playground: X1 Quest game (local) | Built simulator + SDK | Same, on your machine, guided level by level | `npm run playground:web` | 11/11 levels in a headless browser; API smoke 33/33 |
 | 3 | Example scripts | Built simulator + SDK | One SDK call each, with output you can paste | `npx tsx examples/<name>.ts` | All pass ([outputs](notes/)) |
@@ -17,7 +17,7 @@ Plus a browser test of the game itself: `npx tsx tools/playground-ui-test.ts` (h
 
 ## 0. Online (nothing to install)
 
-Open https://xstranger-7.github.io/cypherock-simulator-bridge/ and press **Power on** in level 0. The firmware boots in your tab in a few seconds, and its real screen appears above the live wire. Reloading the page gives a fresh device. Build and test it locally with `npm run web:build`, `npm run web:serve` and `UI_SHOT_PREFIX=web- npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/` (see [deploy.md](deploy.md)).
+Open https://xstranger-7.github.io/cypherock-simulator-bridge/play/ (or the product page at https://xstranger-7.github.io/cypherock-simulator-bridge/ and **Launch X1 Quest**) and press **Power on** in level 0. The firmware boots in your tab in a few seconds, and its real screen appears above the live wire. Reloading the page gives a fresh device. Build and test it locally with `npm run web:build`, `npm run web:serve` and `UI_SHOT_PREFIX=web- npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/play/` (see [deploy.md](deploy.md)).
 
 ## 1. Docker (any OS with Docker)
 

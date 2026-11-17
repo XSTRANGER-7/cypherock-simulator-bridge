@@ -34,7 +34,7 @@ Full outputs and the frame-by-frame trace are in [docs/notes/](docs/notes).
 
 ## Play it: X1 Quest
 
-**Play online, nothing to install: https://xstranger-7.github.io/cypherock-simulator-bridge/**. Cypherock's X1 firmware, compiled to WebAssembly, boots inside your browser tab next to the SDK: no server, and every visitor gets their own private device. GitHub Actions builds it from upstream + the patches, plays all 11 levels in headless Chrome, then publishes it ([how it works](docs/deploy.md)).
+**Website: https://xstranger-7.github.io/cypherock-simulator-bridge/** · **Play online, nothing to install: https://xstranger-7.github.io/cypherock-simulator-bridge/play/**. Cypherock's X1 firmware, compiled to WebAssembly, boots inside your browser tab next to the SDK: no server, and every visitor gets their own private device. GitHub Actions builds it from upstream + the patches, plays all 11 levels in headless Chrome, then publishes it ([how it works](docs/deploy.md)).
 
 A guided, game-style playground. Each level is one real SDK call against the real firmware: it tells you **what** you are doing, **why** it matters, **where it is used** in real wallets, shows the steps advancing on real packets, animates the result, and runs **real test checks** on it.
 
@@ -134,6 +134,8 @@ cypherock-simulator-bridge/
 ├── sdk-patch/sdk.patch            packages/hw-simulator + ConnectionTypeMap.SIMULATOR, applies to upstream 4e44158
 ├── examples/                      raw-status, device info, wallets, ETH address, sign-tx, terminal playground
 ├── playground/                    web playground: server.ts + public/ (no build step)
+├── site/                          product page, the root of the GitHub Pages site
+├── web/                           browser build of X1 Quest: firmware as WebAssembly + bundled SDK (web/build.mjs)
 ├── tools/                         capability matrix, playground smoke and browser tests
 ├── docker/Dockerfile              one-command playground image
 ├── integration-tests/             TS <-> C bridge, SDK <-> firmware simulator

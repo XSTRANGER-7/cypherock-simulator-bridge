@@ -1,9 +1,11 @@
 name: Deploy X1 Quest (GitHub Pages)
 
-# Builds the static, serverless X1 Quest: Cypherock's X1 firmware (upstream +
+# Builds the static site: the product page (site/) at the root and the
+# serverless X1 Quest under play/: Cypherock's X1 firmware (upstream +
 # firmware-patch) compiled to WebAssembly with Emscripten, the Cypherock SDK
-# (upstream + sdk-patch) bundled for the browser, and the game. Plays all 11
-# levels in headless Chrome before publishing to GitHub Pages.
+# (upstream + sdk-patch) bundled for the browser, and the game. Checks every
+# local link on the product page and plays all 11 levels in headless Chrome
+# before publishing to GitHub Pages.
 
 on:
   push:
@@ -90,12 +92,22 @@ jobs:
       - run: npm ci
       - name: Bundle the site
         run: node web/build.mjs
-      - name: Play all 11 levels in headless Chrome
+      - name: Serve the site
         run: |
           node web/serve.mjs dist-web 8090 > serve.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8090/ >/dev/null && break; sleep 1; done
+      - name: Product page and its local links
+        run: |
+          curl -sf http://127.0.0.1:8090/ -o "$RUNNER_TEMP/index.html"
+          grep -q 'Launch X1 Quest' "$RUNNER_TEMP/index.html"
+          for p in $(grep -oE '(href|src)="[^"#:]+"' "$RUNNER_TEMP/index.html" | sed -E 's/^(href|src)="//; s/"$//' | sort -u); do
+            curl -sf -o /dev/null "http://127.0.0.1:8090/$p" || { echo "::error::broken link on the product page: $p"; exit 1; }
+            echo "ok  $p"
+          done
+      - name: Play all 11 levels in headless Chrome
+        run: |
           BROWSER=$(command -v google-chrome || command -v chromium) UI_SHOT_PREFIX=web- \
-            ./scripts/ci-run.sh "Browser playthrough" npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/
+            ./scripts/ci-run.sh "Browser playthrough" npx tsx tools/playground-ui-test.ts http://127.0.0.1:8090/play/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

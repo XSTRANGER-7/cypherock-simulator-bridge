@@ -30,9 +30,42 @@ const COINS = [
 ];
 const RANKS = [[0, 'Rookie'], [150, 'Packet Pilot'], [450, 'Key Keeper'], [800, 'Signer'], [1200, 'Chain Hopper'], [1850, 'X1 Master']];
 const PACKET_COLORS = {
-  STATUS_REQ: '#5b8cff', STATUS: '#5b8cff', CMD: '#ffbe55', CMD_ACK: '#3ddc97', CMD_OUTPUT_REQ: '#9b7bff',
-  CMD_OUTPUT: '#c77dff', ERROR: '#ff6b7a', ABORT: '#ff6b7a', LEGACY: '#93a0bd',
+  STATUS_REQ: '#63a4ff', STATUS: '#63a4ff', CMD: '#ffb547', CMD_ACK: '#34d399', CMD_OUTPUT_REQ: '#8a5cff',
+  CMD_OUTPUT: '#c86bff', ERROR: '#ff5f73', ABORT: '#ff5f73', LEGACY: '#9aa3c7',
 };
+
+// Stroke icons (24x24), one per level plus a few UI marks. Built with DOM calls,
+// so they work under the server's strict Content-Security-Policy.
+const ICON_PATHS = {
+  power: 'M12 3v8|M6.3 6.8a8 8 0 1 0 11.4 0',
+  contact: 'M4 8h15|M15 4l4 4-4 4|M20 16H5|M9 12l-4 4 4 4',
+  handshake: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1|M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1',
+  vault: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z|M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z|M12 12h.01|M7 20v1.5M17 20v1.5',
+  address: 'M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z|M12 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',
+  sign: 'M4 20h4L19 9a2.83 2.83 0 0 0-4-4L4 16z|M13.5 6.5l4 4',
+  message: 'M4 5h16v11H9l-5 4z|M8.5 10.5l2 2 4-4',
+  typed: 'M6 3h9l4 4v14H6z|M14 3v5h5|M9 12h7|M9 16h5',
+  bitcoin: 'M12 3c3.9 0 7 1.3 7 3s-3.1 3-7 3-7-1.3-7-3 3.1-3 7-3z|M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6|M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6',
+  chains: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z|M3 12h18|M12 3a14 14 0 0 1 0 18|M12 3a14 14 0 0 0 0 18',
+  boss: 'M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z',
+  lock: 'M6 11h12v10H6z|M8.5 11V8a3.5 3.5 0 0 1 7 0v3',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6',
+  globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z|M3 12h18|M12 3a14 14 0 0 1 0 18|M12 3a14 14 0 0 0 0 18',
+};
+function icon(name) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'ic-svg');
+  (ICON_PATHS[name] || ICON_PATHS.spark).split('|').forEach((d) => {
+    const p = document.createElementNS(NS, 'path');
+    p.setAttribute('d', d);
+    svg.append(p);
+  });
+  return svg;
+}
 
 // ------------------------------------------------------------------ state
 const STORE_KEY = 'x1quest.v1';
@@ -481,9 +514,12 @@ function renderMap() {
     b.classList.add(isDone(i) ? 'done' : open ? 'available' : 'locked');
     if (i === current) b.classList.add('current');
     if (lv.boss) b.classList.add('boss');
-    const orb = el('span', 'orb', isDone(i) ? '✓' : open ? lv.icon : '🔒');
+    const orb = el('span', 'orb');
+    orb.append(icon(isDone(i) ? 'check' : open ? lv.id : 'lock'));
     const txt = el('span');
-    txt.append(el('div', 't', `${i}. ${lv.title}`), el('div', 's', `+${lv.xp} XP`));
+    txt.style.setProperty('min-width', '0');
+    txt.append(el('div', 't', lv.title), el('div', 's', `${lv.boss ? 'Final level' : `Level ${i}`} · +${lv.xp} XP`));
+    b.title = `${i}. ${lv.title}`;
     b.append(orb, txt);
     b.addEventListener('click', () => {
       if (running) return;
@@ -527,18 +563,40 @@ function openLevel(i) {
   const m = $('#mission');
   m.textContent = '';
   const card = el('div', 'mission-card');
+
+  // Hero banner: the level's art, title, reward and goal.
+  const hero = el('div', `mission-hero${lv.boss ? ' boss' : ''}`);
+  const art = el('div', 'hero-art');
+  const tile = el('div', 'tile');
+  tile.append(icon(lv.id));
+  art.append(tile, el('span', 'spark s1'), el('span', 'spark s2'), el('span', 'spark s3'));
+  const heroText = el('div', 'hero-text');
   const head = el('div', 'mission-head');
-  head.append(el('span', 'lvl', lv.boss ? 'Final level' : `Level ${i}`), el('h2', '', `${lv.icon} ${lv.title}`), el('span', 'reward', isDone(i) ? 'Completed ✓' : `+${lv.xp} XP`));
-  card.append(head, el('p', 'goal', lv.goal));
+  head.append(
+    el('span', 'lvl', lv.boss ? 'Final level · boss fight' : `Level ${i} · mission`),
+    el('h2', '', lv.title),
+    el('span', `reward${isDone(i) ? ' done' : ''}`, isDone(i) ? 'Completed ✓' : `+${lv.xp} XP`),
+  );
+  heroText.append(head, el('p', 'goal', lv.goal));
+  hero.append(art, heroText);
+  card.append(hero);
 
   const info = el('div', 'info-grid');
+  const heading = (ic, text) => {
+    const h = el('h4');
+    h.append(icon(ic), document.createTextNode(text));
+    return h;
+  };
   const why = el('div', 'info why');
-  why.append(el('h4', '', 'Why it matters'), el('p', '', lv.why));
+  why.append(heading('spark', 'Why it matters'), el('p', '', lv.why));
   const use = el('div', 'info use');
-  use.append(el('h4', '', 'Real-world use'), el('p', '', lv.use));
+  use.append(heading('globe', 'Real-world use'), el('p', '', lv.use));
   info.append(why, use);
   card.append(info);
 
+  const stepsTitle = el('div', 'sec-title', 'Live steps');
+  stepsTitle.append(el('small', '', lv.id === 'power' ? 'follow the boot' : 'they advance on real packets'));
+  card.append(stepsTitle);
   const steps = el('ol', 'steps');
   lv.steps.forEach((s) => {
     const li = el('li');
@@ -580,7 +638,8 @@ function openLevel(i) {
   if (lv.collect) setupCollect(lv, i, ui);
   if (lv.boss) go.addEventListener('click', () => runBoss(i, ui));
   else if (!lv.collect) go.addEventListener('click', () => runLevel(i, ui));
-  m.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' });
+  m.scrollTop = 0; // dashboard layout: the mission scrolls inside its own pane
+  if (m.getBoundingClientRect().top < 0) m.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' });
 }
 
 function stepper(stepsEl) {
@@ -887,14 +946,24 @@ setInterval(() => {
   anim.onfinish = () => dot.remove();
 }, 45);
 
+const clock = (at) => new Date(at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
 function feedLine(f, type) {
   const feed = $('#feed');
-  const li = el('li');
-  const tag = el('span', `tag t-${f.dir}`, f.dir === 'tx' ? '→' : '←');
-  const ty = el('span', 'ty', `${type} `);
-  ty.style.setProperty('color', PACKET_COLORS[type] || '#e8ecf6');
-  const rest = f.text.slice(type === 'LEGACY' ? 10 : type.length);
-  li.append(tag, ty, document.createTextNode(rest));
+  const color = PACKET_COLORS[type] || '#e8ecf6';
+  const li = el('li', `msg ${f.dir}`);
+  const av = el('span', 'av', f.dir === 'tx' ? '→' : '←');
+  av.style.setProperty('color', color);
+  av.title = f.dir === 'tx' ? 'app → device' : 'device → app';
+  const body = el('div');
+  const meta = el('div', 'meta');
+  const ty = el('b', 'ty', type);
+  ty.style.setProperty('color', color);
+  const time = el('time', '', clock(f.at));
+  meta.append(ty, el('span', 'dir', f.dir === 'tx' ? 'to device' : 'from device'), time);
+  const rest = f.text.slice(type === 'LEGACY' ? 10 : type.length).trim();
+  body.append(meta, el('div', 'body', rest));
+  li.append(av, body);
   feed.append(li);
   while (feed.children.length > 300) feed.firstChild.remove();
   feed.scrollTop = feed.scrollHeight;
@@ -1015,6 +1084,9 @@ document.querySelectorAll('[data-menu]').forEach((b) => b.addEventListener('clic
   }
 }));
 $('#feed-clear').addEventListener('click', () => { $('#feed').textContent = ''; sent = 0; received = 0; $('#wire-stats').textContent = '0 sent · 0 received'; });
+
+// The GitHub Pages build has a product page one level up.
+if (BROWSER) $('#home-link')?.removeAttribute('hidden');
 
 renderLegend();
 renderProgress();
