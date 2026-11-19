@@ -99,7 +99,7 @@ jobs:
       - name: Product page and its local links
         run: |
           curl -sf http://127.0.0.1:8090/ -o "$RUNNER_TEMP/index.html"
-          grep -q 'Launch X1 Quest' "$RUNNER_TEMP/index.html"
+          grep -q 'href="play/"' "$RUNNER_TEMP/index.html" || { echo "::error::the product page does not link to play/"; exit 1; }
           for p in $(grep -oE '(href|src)="[^"#:]+"' "$RUNNER_TEMP/index.html" | sed -E 's/^(href|src)="//; s/"$//' | sort -u); do
             curl -sf -o /dev/null "http://127.0.0.1:8090/$p" || { echo "::error::broken link on the product page: $p"; exit 1; }
             echo "ok  $p"
